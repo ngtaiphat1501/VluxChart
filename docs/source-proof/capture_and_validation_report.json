@@ -1,0 +1,173 @@
+{
+  "gate": "G0_SOURCE_PROOF",
+  "timestamp_utc": "2026-11-12T16:59:58Z",
+  "bybit_verification": {
+    "status": "PASS",
+    "venue": "BYBIT",
+    "market": "LINEAR_PERP",
+    "feed": "publicTrade",
+    "trade_count": 35,
+    "message_count": 24,
+    "fixture_path": "fixtures\\raw\\bybit\\sample_bybit_trades.jsonl",
+    "sha256": "c5978d7f1c46a7a841b91933df88d0cbcc1c861fde646c93b9d1f84d6b07da58",
+    "sample_trades": [
+      {
+        "recv_ts_us": 1794502754849152,
+        "exchange_ts_ms": 1794502754694,
+        "symbol": "BTCUSDT",
+        "side": "Buy",
+        "volume": "0.009",
+        "price": "71750.90",
+        "trade_id": "e8c6dd30-1c50-5d34-a905-090dc2324a91",
+        "block_trade": false
+      },
+      {
+        "recv_ts_us": 1794502755193646,
+        "exchange_ts_ms": 1794502755039,
+        "symbol": "BTCUSDT",
+        "side": "Sell",
+        "volume": "0.001",
+        "price": "71750.80",
+        "trade_id": "bd8429f6-e8ef-5086-ae38-a9fb51d11b4f",
+        "block_trade": false
+      },
+      {
+        "recv_ts_us": 1794502755193646,
+        "exchange_ts_ms": 1794502755039,
+        "symbol": "BTCUSDT",
+        "side": "Sell",
+        "volume": "0.001",
+        "price": "71750.80",
+        "trade_id": "be9941f9-653d-5098-89b0-6a636aaa0bc4",
+        "block_trade": false
+      }
+    ]
+  },
+  "binance_btc_verification": {
+    "status": "PASS",
+    "venue": "BINANCE",
+    "host_used": "fstream.binancefuture.com",
+    "stream": "btcusdt@aggTrade",
+    "trade_count": 23,
+    "fixture_path": "fixtures\\raw\\binance\\sample_binance_aggtrades.jsonl",
+    "sha256": "7d5592f000f9fa4100cae4c28f8aacdba958737046ad9a7d2e0c81a3206c6eed",
+    "sample_trades": [
+      {
+        "recv_ts_us": 1794502761814044,
+        "exchange_ts_ms": 1794502761491,
+        "symbol": "BTCUSDT",
+        "agg_trade_id": 320590357,
+        "price": "71773.80",
+        "quantity": "0.0007",
+        "first_trade_id": 556728143,
+        "last_trade_id": 556728143,
+        "is_buyer_maker": true,
+        "aggressor_side": "SELL"
+      },
+      {
+        "recv_ts_us": 1794502762155824,
+        "exchange_ts_ms": 1794502761823,
+        "symbol": "BTCUSDT",
+        "agg_trade_id": 320590358,
+        "price": "71773.80",
+        "quantity": "0.0009",
+        "first_trade_id": 556728144,
+        "last_trade_id": 556728144,
+        "is_buyer_maker": true,
+        "aggressor_side": "SELL"
+      },
+      {
+        "recv_ts_us": 1794502762363042,
+        "exchange_ts_ms": 1794502762055,
+        "symbol": "BTCUSDT",
+        "agg_trade_id": 320590359,
+        "price": "71773.80",
+        "quantity": "0.0027",
+        "first_trade_id": 556728145,
+        "last_trade_id": 556728146,
+        "is_buyer_maker": true,
+        "aggressor_side": "SELL"
+      }
+    ]
+  },
+  "binance_gold_verification": {
+    "status": "PASS",
+    "venue": "BINANCE",
+    "host_used": "fstream.binancefuture.com",
+    "stream": "xauusdt@aggTrade",
+    "trade_count": 12,
+    "fixture_path": "fixtures\\raw\\binance\\sample_binance_xauusdt_aggtrades.jsonl",
+    "sha256": "30d6dd086d518ea6dc6eb9fb49ef71cbaa63dad76615250b4dbc46eee861f89d",
+    "sample_trades": [
+      {
+        "recv_ts_us": 1794502778091313,
+        "exchange_ts_ms": 1794502777751,
+        "symbol": "XAUUSDT",
+        "agg_trade_id": 40596673,
+        "price": "3886.18",
+        "quantity": "0.009",
+        "first_trade_id": 61395295,
+        "last_trade_id": 61395295,
+        "is_buyer_maker": true,
+        "aggressor_side": "SELL"
+      },
+      {
+        "recv_ts_us": 1794502778340805,
+        "exchange_ts_ms": 1794502777999,
+        "symbol": "XAUUSDT",
+        "agg_trade_id": 40596674,
+        "price": "3886.18",
+        "quantity": "0.007",
+        "first_trade_id": 61395296,
+        "last_trade_id": 61395296,
+        "is_buyer_maker": true,
+        "aggressor_side": "SELL"
+      },
+      {
+        "recv_ts_us": 1794502780360118,
+        "exchange_ts_ms": 1794502780023,
+        "symbol": "XAUUSDT",
+        "agg_trade_id": 40596675,
+        "price": "3886.17",
+        "quantity": "0.010",
+        "first_trade_id": 61395297,
+        "last_trade_id": 61395297,
+        "is_buyer_maker": true,
+        "aggressor_side": "SELL"
+      }
+    ]
+  },
+  "gold_metadata": {
+    "binance_futures": {
+      "accessible": true,
+      "total_symbols": 946,
+      "xauusdt_present": true,
+      "paxgusdt_present": true,
+      "xauusdt_details": {
+        "symbol": "XAUUSDT",
+        "contractType": "TRADIFI_PERPETUAL",
+        "status": "TRADING",
+        "baseAsset": "XAU",
+        "quoteAsset": "USDT",
+        "pricePrecision": 2,
+        "quantityPrecision": 3,
+        "tickSize": "0.01",
+        "stepSize": "0.001"
+      }
+    },
+    "binance_spot": {
+      "accessible": true,
+      "xauusdt_present": false,
+      "paxgusdt_present": true
+    },
+    "bybit_linear": {
+      "accessible": true,
+      "xauusdt_present": false,
+      "paxgusdt_present": false
+    }
+  },
+  "conclusion": {
+    "btc_eth_source_proven": true,
+    "gold_instrument_status": "VERIFIED_PASS"
+  }
+}

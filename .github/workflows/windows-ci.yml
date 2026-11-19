@@ -1,0 +1,41 @@
+name: DeepChart Windows CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Windows Test & Quality Audit
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Python Test Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pyyaml websockets requests
+
+      - name: Rust Formatting Check
+        run: cargo fmt --all --check
+
+      - name: Rust Workspace Unit & Golden Tests
+        run: cargo test --workspace --verbose
+
+      - name: Gate G0 & G1 Automated Tests
+        run: python -m pytest tests -v

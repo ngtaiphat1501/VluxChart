@@ -1,0 +1,17 @@
+[package]
+name = "raw-journal"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+data-contract = { path = "../data-contract" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+crc32fast = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.10"

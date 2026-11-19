@@ -1,0 +1,13 @@
+{
+  "session_duration_s": 9.13,
+  "total_trades_ingested": 150000,
+  "instruments_tested": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "XAUUSDT"
+  ],
+  "crash_count": 0,
+  "p0_bug_count": 0,
+  "invariant_violations": 0,
+  "status": "PASS"
+}
