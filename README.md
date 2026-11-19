@@ -46,6 +46,8 @@ VluxChart has successfully passed all **41/41 rigorous automated institutional t
 
 **Overall Audit Result:** `41 passed, 0 failed, 0 skipped in 65.47s`.
 
+👉 **[Read the Full Institutional Technical Audit & Mathematical Proofs Report (TRANSPARENCY_AND_AUDIT_REPORT.md)](docs/TRANSPARENCY_AND_AUDIT_REPORT.md)**
+
 ---
 
 ## 3. Core Capabilities & Architecture
@@ -136,6 +138,8 @@ VluxChart 已通过全部 **41/41 项全自动化机构级严苛测试**，涵�
 
 **总测试审计结果：** `41 项全部通过，0 失败，0 跳过，耗时 65.47 秒`。
 
+👉 **[阅读完整机构级技术审计与数学证明报告 (TRANSPARENCY_AND_AUDIT_REPORT.md)](docs/TRANSPARENCY_AND_AUDIT_REPORT.md)**
+
 ---
 
 ## 3. 核心功能与架构特性
@@ -225,6 +229,8 @@ VluxChart đã vượt qua xuất sắc toàn bộ **41/41 kịch bản kiểm t
 | **G7** | **Nghiệm Thu Vận Hành**| Chuyển đổi đa tài sản mượt mà, kiểm tra trôi số thập phân, kịch bản rollback khẩn cấp | **PASSED** | 5/5 test đạt (Nghiệm thu đạt 100%) |
 
 **Tổng Kết Kiểm Định:** `41 passed, 0 failed, 0 skipped trong 65.47 giây`.
+
+👉 **[Xem toàn văn Báo Cáo Thẩm Định Chi Tiết & Bằng Chứng Toán Học (TRANSPARENCY_AND_AUDIT_REPORT.md)](docs/TRANSPARENCY_AND_AUDIT_REPORT.md)**
 
 ---
 
