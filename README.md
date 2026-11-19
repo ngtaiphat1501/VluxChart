@@ -127,3 +127,4 @@ python -m pytest tests -v
 ## License
 
 This project is licensed under the MIT License or Apache-2.0 License. See [LICENSE](LICENSE) and [NOTICES.md](NOTICES.md) for details.
+# VluxChart
