@@ -1,13 +1,13 @@
-# DeepChart â€” High-Performance Order Flow Analytics & Trading Terminal
+# VluxChart — High-Performance Order Flow Analytics & Trading Terminal
 
-[![Windows CI](https://github.com/your-username/deepchart/actions/workflows/windows-ci.yml/badge.svg)](https://github.com/your-username/deepchart/actions)
+[![Windows CI](https://github.com/ngtaiphat1501/VluxChart/actions/workflows/windows-ci.yml/badge.svg)](https://github.com/ngtaiphat1501/VluxChart/actions)
 ![Rust](https://img.shields.io/badge/rust-2021_edition-orange.svg)
 ![Tauri](https://img.shields.io/badge/tauri-v2-blue.svg)
 ![React](https://img.shields.io/badge/react-19-cyan.svg)
 ![TypeScript](https://img.shields.io/badge/typescript-5-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-green.svg)
 
-**DeepChart** is a local-first, low-latency market microstructure and order flow analytics application for institutional and professional traders. It combines the raw power of **Rust** (Tokio async runtime, custom lock-free ring buffers, fixed-point decimal arithmetic) with the fluid UX of **Tauri 2** and **React**.
+**VluxChart** is a local-first, low-latency market microstructure and order flow analytics application for institutional and professional traders. It combines the raw power of **Rust** (Tokio async runtime, custom lock-free ring buffers, fixed-point decimal arithmetic) with the fluid UX of **Tauri 2** and **React**.
 
 ---
 
@@ -47,20 +47,20 @@
 ## Architecture Overview
 
 ```
-DeepChart/
-â”œâ”€â”€ crates/
-â”‚   â”œâ”€â”€ app_service/      # State management, snapshot coordinator, IPC DTOs
-â”‚   â”œâ”€â”€ data_contract/    # Fixed-point price/volume numeric types, core data schemas
-â”‚   â”œâ”€â”€ data_quality/     # Sequence gap detection, bounded deduplication, data integrity
-â”‚   â”œâ”€â”€ feed_adapters/    # Bybit, Binance, MT5 bridge WebSocket/RPC adapters
-â”‚   â”œâ”€â”€ raw_journal/      # Crash-resilient WAL, CRC32 verification, atomic checkpointing
-â”‚   â””â”€â”€ volume_engine/    # Footprint, VWAP, POC, CVD, MBO Iceberg, Options GEX engine
-â”œâ”€â”€ apps/
-â”‚   â””â”€â”€ desktop/          # Tauri 2 native shell + React 19 / TypeScript / Vite frontend
-â”œâ”€â”€ fixtures/             # Real exchange market data fixtures for golden tests
-â”œâ”€â”€ scripts/              # MT5 bridge, packaging, and developer helper scripts
-â”œâ”€â”€ tests/                # Automated integration & quality gate verification suite (G0-G7)
-â””â”€â”€ docs/                 # Architecture Decision Records (ADRs), source contracts, benchmarks
+VluxChart/
+├── crates/
+│   ├── app_service/      # State management, snapshot coordinator, IPC DTOs
+│   ├── data_contract/    # Fixed-point price/volume numeric types, core data schemas
+│   ├── data_quality/     # Sequence gap detection, bounded deduplication, data integrity
+│   ├── feed_adapters/    # Bybit, Binance, MT5 bridge WebSocket/RPC adapters
+│   ├── raw_journal/      # Crash-resilient WAL, CRC32 verification, atomic checkpointing
+│   └── volume_engine/    # Footprint, VWAP, POC, CVD, MBO Iceberg, Options GEX engine
+├── apps/
+│   └── desktop/          # Tauri 2 native shell + React 19 / TypeScript / Vite frontend
+├── fixtures/             # Real exchange market data fixtures for golden tests
+├── scripts/              # MT5 bridge, packaging, and developer helper scripts
+├── tests/                # Automated integration & quality gate verification suite (G0-G7)
+└── docs/                 # Architecture Decision Records (ADRs), source contracts, benchmarks
 ```
 
 ---
@@ -76,7 +76,7 @@ DeepChart/
 
 ### Quick Run
 
-DeepChart includes convenient Windows batch scripts to start immediately:
+VluxChart includes convenient Windows batch scripts to start immediately:
 
 ```cmd
 :: Run complete desktop application (Tauri 2 + React)
@@ -112,7 +112,7 @@ python scripts/mt5_live_bridge.py
 
 ## Verification & Testing
 
-DeepChart adheres to strict quality gates (G0 through G7). Every commit is verified:
+VluxChart adheres to strict quality gates (G0 through G7). Every commit is verified:
 
 ```bash
 # Run all Rust workspace unit and golden tests (40+ tests)
@@ -127,4 +127,3 @@ python -m pytest tests -v
 ## License
 
 This project is licensed under the MIT License or Apache-2.0 License. See [LICENSE](LICENSE) and [NOTICES.md](NOTICES.md) for details.
-# VluxChart
