@@ -363,9 +363,9 @@ export function App() {
       setSnapshot((prev) => adaptSnapshotToTimeframe(prev, timeframeUs));
     }
 
-    // 2. Fetch fresh historical klines for this timeframe (220 bars for fast <60ms response)
+    // 2. Fetch fresh historical klines for this timeframe (1000 bars for comprehensive macro & micro context)
     try {
-      const realBars = await liveFeedService.fetchRealHistoricalKlines(symbol, interval, 220);
+      const realBars = await liveFeedService.fetchRealHistoricalKlines(symbol, interval, 1000);
       if (reqId !== timeframeRequestIdRef.current) return; // Ignore stale response if user clicked another timeframe
       if (realBars && realBars.length > 0) {
         const lastBar = realBars[realBars.length - 1];
@@ -727,9 +727,9 @@ export function App() {
       }));
     }
 
-    // 2. Fetch fresh historical kline bars from exchange (fast 220-bar batch)
+    // 2. Fetch fresh historical kline bars from exchange (1000 bars for full session & macro context)
     const activeInterval = timeframeUsToBybitInterval(currentTfUs);
-    liveFeedService.fetchRealHistoricalKlines(symbol, activeInterval, 220)
+    liveFeedService.fetchRealHistoricalKlines(symbol, activeInterval, 1000)
       .then((realBars) => {
         if (isCancelled || realBars.length === 0) return;
         const lastBar = realBars[realBars.length - 1];
@@ -1111,6 +1111,7 @@ export function App() {
                 setPickedOrderPriceTicks(ticks);
                 setIsPickingPriceOnChart(false);
               }}
+              onLoadMoreHistory={handleLoadMoreHistory}
             />
           )}
         </div>

@@ -352,7 +352,7 @@ export function generateCanonicalSnapshot(instrumentId: string): ChartSnapshotDT
   const baseTicks = inst.basePriceTicks;
   const tick = inst.tickSize;
   const barIntervalUs = 60000000; // 1m
-  const totalBarsCount = 42;
+  const totalBarsCount = 180;
 
   let anchorMs = Date.now();
   if (instrumentId.startsWith('MT5:') && !instrumentId.includes(':CRYPTO:')) {
@@ -376,8 +376,8 @@ export function generateCanonicalSnapshot(instrumentId: string): ChartSnapshotDT
     const openTicks = Math.round(currentOpen);
     const barStartUs = nowUs + i * barIntervalUs;
     
-    // Only recent bars (last 16 bars) have verified trade-level Footprint matrix
-    const hasFootprintCoverage = i >= totalBarsCount - 16;
+    // Recent 60 bars have verified trade-level Footprint matrix
+    const hasFootprintCoverage = i >= totalBarsCount - 60;
     const footprint: FootprintCellDTO[] = [];
 
     // Continuous tick range: 18 to 28 discrete ticks per candle (Gaussian profile)

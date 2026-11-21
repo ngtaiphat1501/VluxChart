@@ -40,6 +40,7 @@ interface MultiChartGridProps {
   magnetEnabled?: boolean;
   isPickingPriceOnChart?: boolean;
   onPricePickedFromChart?: (priceTicks: number) => void;
+  onLoadMoreHistory?: () => void;
 }
 
 function getBybitSymbolFromId(instrumentId: string): string {
@@ -69,6 +70,7 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
   magnetEnabled,
   isPickingPriceOnChart,
   onPricePickedFromChart,
+  onLoadMoreHistory,
 }) => {
   const [activePaneId, setActivePaneId] = useState<string>('pane-1');
   const [maximizedPaneId, setMaximizedPaneId] = useState<string | null>(null);
@@ -217,6 +219,7 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
         magnetEnabled={magnetEnabled}
         isPickingPriceOnChart={isPickingPriceOnChart}
         onPricePickedFromChart={onPricePickedFromChart}
+        onLoadMoreHistory={onLoadMoreHistory}
       />
     );
   }
@@ -488,6 +491,7 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
             magnetEnabled={magnetEnabled}
             isPickingPriceOnChart={isPickingPriceOnChart}
             onPricePickedFromChart={onPricePickedFromChart}
+            onLoadMoreHistory={pane.id === 'pane-1' ? onLoadMoreHistory : undefined}
           />
         </div>
       </div>

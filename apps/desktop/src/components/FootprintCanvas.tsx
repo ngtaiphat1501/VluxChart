@@ -73,6 +73,7 @@ interface FootprintCanvasProps {
   magnetEnabled?: boolean;
   isPickingPriceOnChart?: boolean;
   onPricePickedFromChart?: (priceTicks: number) => void;
+  onLoadMoreHistory?: () => void;
 }
 
 export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
@@ -112,6 +113,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   magnetEnabled = false,
   isPickingPriceOnChart = false,
   onPricePickedFromChart,
+  onLoadMoreHistory,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -552,8 +554,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     const chartHeight = Math.max(150, height - timeAxisH - cotTableH - volHistH - cvdPanelH);
 
     const axisW = 72;
-    const domStripW = showChartDom ? 52 : 0;
-    const rightMargin = axisW + domStripW + 24;
+    const domStripW = 0;
+    const rightMargin = axisW + 20;
 
     const barWidth = Math.max(84 * zoom, 2.0);
     const barSpacing = Math.max(14 * zoom, 1.0);
@@ -639,6 +641,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       barWidth,
       barSpacing,
       clampedPanX,
+      maxPanLeft,
+      maxPanRight,
       axisW,
       domStripW,
       rightMargin,
@@ -892,7 +896,13 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
 
     if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
       const dx = e.deltaX !== 0 ? -e.deltaX : -e.deltaY;
-      setPanX((prev) => prev + dx * 1.2);
+      setPanX((prev) => {
+        const next = prev + dx * 1.2;
+        if (next >= helpers.maxPanLeft - 350 && onLoadMoreHistory) {
+          onLoadMoreHistory();
+        }
+        return next;
+      });
       return;
     }
 
@@ -992,50 +1002,6 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         timeUs: allBars[allBars.length - 1]?.bar_start_us || Date.now() * 1000,
       });
       return;
-    }
-
-    // 2. Check if user clicked inside the In-Chart DOM Trading Strip (ATAS / DeepChart Chart Trader)
-    if (showChartDom && mouseX >= domX && mouseX < axisX && mouseY <= chartHeight) {
-      const btnH = 15;
-      const cancelY = chartHeight - btnH * 2 - 4;
-      const flatY = chartHeight - btnH - 2;
-      if (mouseY >= cancelY && mouseY <= cancelY + btnH) {
-        mt5BridgeService.cancelPending(instrumentId);
-        return;
-      }
-      if (mouseY >= flatY && mouseY <= flatY + btnH) {
-        mt5BridgeService.flattenAll(instrumentId, refPrice);
-        return;
-      }
-      if (mouseY > 20 && mouseY < cancelY - 2) {
-        const clickedDomPrice = Math.round(helpers.yToPrice(mouseY) / instMeta.tickSize) * instMeta.tickSize;
-        const isBidColumn = mouseX < domX + helpers.domStripW / 2;
-        const pipStep = instMeta.pipTicks || instMeta.tickSize * 2;
-        if (isBidColumn) {
-          mt5BridgeService.placeOrder({
-            instrumentId,
-            side: 'Buy',
-            orderType: clickedDomPrice <= refPrice ? 'LIMIT' : 'STOP',
-            lots: oneClickLots,
-            entryPriceTicks: clickedDomPrice,
-            slTicks: clickedDomPrice - 20 * pipStep,
-            tpTicks: clickedDomPrice + 40 * pipStep,
-            comment: 'DOM-Click-Buy',
-          });
-        } else {
-          mt5BridgeService.placeOrder({
-            instrumentId,
-            side: 'Sell',
-            orderType: clickedDomPrice >= refPrice ? 'LIMIT' : 'STOP',
-            lots: oneClickLots,
-            entryPriceTicks: clickedDomPrice,
-            slTicks: clickedDomPrice + 20 * pipStep,
-            tpTicks: clickedDomPrice - 40 * pipStep,
-            comment: 'DOM-Click-Sell',
-          });
-        }
-        return;
-      }
     }
 
     if (mouseX >= axisX && mouseY <= chartHeight) {
@@ -1421,8 +1387,12 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
 
     if (dragMode === 'chartPan') {
       setCursorStyle('grabbing');
-      setPanX(initialPanX + (e.clientX - dragStartPos.x));
+      const nextPanX = initialPanX + (e.clientX - dragStartPos.x);
+      setPanX(nextPanX);
       setPanY(initialPanY + (e.clientY - dragStartPos.y));
+      if (nextPanX >= helpers.maxPanLeft - 350 && onLoadMoreHistory) {
+        onLoadMoreHistory();
+      }
       return;
     }
 
@@ -3461,96 +3431,6 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
 
     // End of main chart clipped region
     ctx.restore();
-
-    // =========================================================================
-    // 6. IN-CHART DOM TRADING STRIP (Between Chart & Price Axis)
-    // Matches Right Side of media_1794650941668_c8f4497c.jpg 100%!
-    // =========================================================================
-    if (showChartDom && domStripW > 0) {
-      const domX = chartRightX;
-      const halfDomW = domStripW / 2;
-
-      ctx.save();
-      // Left Column: Resting Bids (Dark Emerald Green Strip)
-      ctx.fillStyle = '#143328';
-      ctx.fillRect(domX, 0, halfDomW, chartHeight);
-
-      // Right Column: Resting Asks (Dark Maroon Red Strip)
-      ctx.fillStyle = '#3A181C';
-      ctx.fillRect(domX + halfDomW, 0, halfDomW, chartHeight);
-
-      // Borders
-      ctx.strokeStyle = '#262932';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(domX, 0);
-      ctx.lineTo(domX, chartHeight);
-      ctx.moveTo(domX + halfDomW, 0);
-      ctx.lineTo(domX + halfDomW, chartHeight);
-      ctx.stroke();
-
-      // Render Live L2 OrderBook Resting Quantities Aligned with Chart Y-Coordinates
-      if (orderBook) {
-        ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
-        ctx.textBaseline = 'middle';
-
-        orderBook.bids?.slice(0, 25).forEach((b) => {
-          const y = priceToY(b.price_ticks);
-          if (y > 22 && y < chartHeight - 36) {
-            ctx.fillStyle = 'rgba(16, 185, 129, 0.35)';
-            ctx.fillRect(domX + 1, y - 6, halfDomW - 2, 12);
-            ctx.fillStyle = '#6EE7B7';
-            ctx.textAlign = 'center';
-            const qStr = b.quantity_units >= 1000 ? `${(b.quantity_units / 1000).toFixed(0)}K` : b.quantity_units.toString();
-            ctx.fillText(qStr, domX + halfDomW / 2, y);
-          }
-        });
-
-        orderBook.asks?.slice(0, 25).forEach((a) => {
-          const y = priceToY(a.price_ticks);
-          if (y > 22 && y < chartHeight - 36) {
-            ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
-            ctx.fillRect(domX + halfDomW + 1, y - 6, halfDomW - 2, 12);
-            ctx.fillStyle = '#FCA5A5';
-            ctx.textAlign = 'center';
-            const qStr = a.quantity_units >= 1000 ? `${(a.quantity_units / 1000).toFixed(0)}K` : a.quantity_units.toString();
-            ctx.fillText(qStr, domX + halfDomW + halfDomW / 2, y);
-          }
-        });
-      }
-
-      // Top P/L Header Box on In-Chart DOM Strip ("D: 0.00 $")
-      ctx.fillStyle = '#1E222D';
-      ctx.fillRect(domX + 1, 2, domStripW - 2, 16);
-      ctx.strokeStyle = '#94A3B8';
-      ctx.strokeRect(domX + 1, 2, domStripW - 2, 16);
-      ctx.fillStyle = '#E2E8F0';
-      ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('D: 0.00 $', domX + domStripW / 2, 10);
-
-      // Bottom CANCEL ALL & FLAT ALL Buttons inside In-Chart DOM Strip
-      const btnH = 15;
-      const cancelY = chartHeight - btnH * 2 - 4;
-      const flatY = chartHeight - btnH - 2;
-
-      ctx.fillStyle = '#1E222D';
-      ctx.fillRect(domX + 1, cancelY, domStripW - 2, btnH);
-      ctx.strokeStyle = '#F97316';
-      ctx.strokeRect(domX + 1, cancelY, domStripW - 2, btnH);
-      ctx.fillStyle = '#F8FAFC';
-      ctx.font = 'bold 7.5px sans-serif';
-      ctx.fillText('CANCEL ALL', domX + domStripW / 2, cancelY + btnH / 2);
-
-      ctx.fillStyle = '#F97316';
-      ctx.fillRect(domX + 1, flatY, domStripW - 2, btnH);
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 7.5px sans-serif';
-      ctx.fillText('FLAT ALL', domX + domStripW / 2, flatY + btnH / 2);
-
-      ctx.restore();
-    }
 
     // =========================================================================
     // 7. SUB-PANEL A: DEEPCHART VOLUME HISTOGRAM (media_1794650904572_a0f8fcfc.jpg)
