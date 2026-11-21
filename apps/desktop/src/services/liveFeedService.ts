@@ -266,7 +266,7 @@ export class LiveFeedService {
   async fetchRealHistoricalKlines(
     symbol: string,
     timeframe: string | number = '1',
-    limit: number = 220,
+    limit: number = 800,
     endMs?: number
   ): Promise<BarDTO[]> {
     if (isMt5Symbol(symbol)) {
@@ -276,21 +276,21 @@ export class LiveFeedService {
       const realRes = await mt5BridgeService.fetchRealMt5Bars(
         instId,
         timeframeUs,
-        Math.min(limit, 180)
+        Math.min(limit, 500)
       );
       if (realRes.ok && realRes.bars.length > 0) {
         return realRes.bars;
       }
       // 2. Fallback if MT5 terminal is not running (strictly clamped to Friday close on weekends!)
-      return this.generateMt5HistoricalBars(symbol, timeframe, Math.min(limit, 180), endMs);
+      return this.generateMt5HistoricalBars(symbol, timeframe, Math.min(limit, 500), endMs);
     }
 
     try {
       const intervalStr = timeframe.toString();
       const timeframeUs = parseIntervalToUs(timeframe);
 
-      // Single fast HTTP page (up to 240 bars) for instant <80ms timeframe switch without UI lag
-      const effectiveLimit = Math.min(limit, 240);
+      // Fetch up to 1000 bars in a single high-speed request (<90ms) for deep macro/HTF perspective
+      const effectiveLimit = Math.min(limit, 1000);
       let allRawList: any[] = [];
       let url = `https://api.bybit.com/v5/market/kline?category=linear&symbol=${symbol}&interval=${intervalStr}&limit=${effectiveLimit}`;
       if (endMs) {

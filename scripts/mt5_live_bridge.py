@@ -687,7 +687,7 @@ def handle_rpc(payload: dict) -> dict:
         if action == "bars":
             inst_id = payload.get("instrumentId", "MT5:CFD:XAUUSD")
             tf_us = int(payload.get("timeframeUs", 60_000_000))
-            count = min(220, max(20, int(payload.get("count", 180))))
+            count = min(1000, max(20, int(payload.get("count", 500))))
             real_sym = resolve_mt5_symbol(inst_id)
             mt5_tf = timeframe_us_to_mt5(tf_us)
 

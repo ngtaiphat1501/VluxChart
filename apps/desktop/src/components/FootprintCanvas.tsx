@@ -188,6 +188,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
   const [showOptions, setShowOptions] = useState<boolean>(false); // Options Strikes, GEX Gamma Exposure, Call/Put Walls & Zero Gamma Flip
   const [showIcebergs, setShowIcebergs] = useState<boolean>(false);
+  const [showPriorDayLevels, setShowPriorDayLevels] = useState<boolean>(true); // HTF-PD: Prior Day High, Low, POC, VAH, VAL
+  const [showStackedImbalances, setShowStackedImbalances] = useState<boolean>(true); // STK-IMB: Extended Stacked Imbalance Zones
   const [liveOptionsChain, setLiveOptionsChain] = useState<LiveOptionsChainResult | null>(null);
   const lastReportedBoundsRef = useRef<{ minPrice: number; maxPrice: number; chartHeight: number; panY: number } | null>(null);
 
@@ -314,6 +316,92 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     }));
   }, [analyzedBars, showAbsorption]);
 
+  // =========================================================================
+  // INSTITUTIONAL PRIOR DAY (HTF) REFERENCE LEVELS: PDH, PDL, PDPOC, PDVAH, PDVAL
+  // =========================================================================
+  const priorDayLevels = useMemo(() => {
+    if (!allBars || allBars.length < 8) return null;
+
+    // Group bars by calendar day (UTC)
+    const dayMap = new Map<string, typeof allBars>();
+    allBars.forEach((bar) => {
+      const d = new Date(bar.bar_start_us / 1000);
+      const dayKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+      let list = dayMap.get(dayKey);
+      if (!list) {
+        list = [];
+        dayMap.set(dayKey, list);
+      }
+      list.push(bar);
+    });
+
+    const dayKeys = Array.from(dayMap.keys()).sort();
+    let targetBars: typeof allBars = [];
+
+    if (dayKeys.length >= 2) {
+      // Prior calendar day is the day right before the latest day
+      const yesterdayKey = dayKeys[dayKeys.length - 2];
+      targetBars = dayMap.get(yesterdayKey) || [];
+    }
+
+    if (targetBars.length === 0) {
+      // Fallback: take the first half of all loaded bars as the prior reference baseline
+      const half = Math.floor(allBars.length / 2);
+      targetBars = allBars.slice(0, Math.max(half, 1));
+    }
+
+    if (targetBars.length === 0) return null;
+
+    let pdh = -Infinity;
+    let pdl = Infinity;
+    const binMap = new Map<number, number>();
+    let totalVol = 0;
+
+    targetBars.forEach((b) => {
+      if (b.high_ticks > pdh) pdh = b.high_ticks;
+      if (b.low_ticks < pdl) pdl = b.low_ticks;
+      if (b.footprint && b.footprint.length > 0) {
+        b.footprint.forEach((c) => {
+          totalVol += c.total_units;
+          binMap.set(c.price_ticks, (binMap.get(c.price_ticks) || 0) + c.total_units);
+        });
+      } else {
+        totalVol += b.total_units;
+        binMap.set(b.poc_ticks || b.close_ticks, (binMap.get(b.poc_ticks || b.close_ticks) || 0) + b.total_units);
+      }
+    });
+
+    if (!isFinite(pdh) || !isFinite(pdl)) return null;
+
+    let pdPoc = targetBars[0].poc_ticks || Math.round((pdh + pdl) / 2);
+    let maxVol = 0;
+    binMap.forEach((v, p) => {
+      if (v > maxVol) {
+        maxVol = v;
+        pdPoc = p;
+      }
+    });
+
+    const sortedBins = Array.from(binMap.entries()).sort((a, b) => b[1] - a[1]);
+    let acc = 0;
+    let pdVah = pdPoc;
+    let pdVal = pdPoc;
+    for (const [p, v] of sortedBins) {
+      acc += v;
+      if (p > pdVah) pdVah = p;
+      if (p < pdVal) pdVal = p;
+      if (acc >= totalVol * 0.70) break;
+    }
+
+    return {
+      pdh,
+      pdl,
+      pdPoc,
+      pdVah: Math.max(pdVah, pdPoc),
+      pdVal: Math.min(pdVal, pdPoc),
+    };
+  }, [allBars]);
+
   const [drawingDraft, setDrawingDraft] = useState<{ start: DrawingPoint; current: DrawingPoint } | null>(null);
   const [brushDraft, setBrushDraft] = useState<DrawingPoint[] | null>(null);
   const [shiftMeasureDraft, setShiftMeasureDraft] = useState<{ start: DrawingPoint; current: DrawingPoint } | null>(null);
@@ -371,8 +459,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     const domStripW = showChartDom ? 52 : 0;
     const rightMargin = axisW + domStripW + 24;
 
-    const barWidth = Math.max(84 * zoom, 18);
-    const barSpacing = Math.max(14 * zoom, 3);
+    const barWidth = Math.max(84 * zoom, 2.0);
+    const barSpacing = Math.max(14 * zoom, 1.0);
     const barPitch = barWidth + barSpacing;
 
     const maxPanLeft = Math.max(0, (allBars.length - 2) * barPitch);
@@ -714,14 +802,14 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
 
     const delta = -e.deltaY;
     const zoomFactor = Math.exp(delta * 0.0018);
-    const newZoom = Math.min(Math.max(zoom * zoomFactor, 0.15), 4.0);
+    const newZoom = Math.min(Math.max(zoom * zoomFactor, 0.025), 4.0);
 
     const currentBarPitch = helpers.barPitch;
     const currentStartX = helpers.startX;
     const barIndexUnderMouse = (mouseX - currentStartX) / currentBarPitch;
 
-    const nextBarWidth = Math.max(84 * newZoom, 18);
-    const nextBarSpacing = Math.max(14 * newZoom, 3);
+    const nextBarWidth = Math.max(84 * newZoom, 2.0);
+    const nextBarSpacing = Math.max(14 * newZoom, 1.0);
     const nextBarPitch = nextBarWidth + nextBarSpacing;
 
     setZoom(newZoom);
@@ -1504,12 +1592,28 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     // live market prices (Royal Blue #1E88E5 Profile + Bright Green #00E676 POC)
     // =========================================================================
     if (showVolumeProfile) {
-      // Build 38-bin Visible Session Volume Profile directly from activeViewportBars
+      // Institutional True Daily Session Profile (Current 24h Trading Day)
+      const latestBar = allBars.length > 0 ? allBars[allBars.length - 1] : null;
+      let sessionBars = allBars;
+      if (latestBar) {
+        const latestDay = new Date(latestBar.bar_start_us / 1000).toISOString().slice(0, 10);
+        const dayBars = allBars.filter(
+          (b) => new Date(b.bar_start_us / 1000).toISOString().slice(0, 10) === latestDay
+        );
+        if (dayBars.length >= 8) {
+          sessionBars = dayBars;
+        } else {
+          sessionBars = allBars.slice(-200);
+        }
+      }
+      const profileSourceBars = sessionBars.length > 0 ? sessionBars : activeViewportBars;
+
+      // Build 38-bin Visible Session Volume Profile directly from profileSourceBars
       const numBins = 38;
       const binStep = Math.max(10, Math.round(priceRange / numBins));
       const binMap = new Map<number, { price_ticks: number; buy_units: number; sell_units: number; total_units: number }>();
 
-      activeViewportBars.forEach((b) => {
+      profileSourceBars.forEach((b) => {
         if (b.footprint && b.footprint.length > 0) {
           b.footprint.forEach((c) => {
             const bucketP = Math.round(c.price_ticks / binStep) * binStep;
@@ -1607,6 +1711,48 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     }
 
     // =========================================================================
+    // INSTITUTIONAL PRIOR DAY (HTF) REFERENCE LEVELS: PDH, PDL, PDPOC, PDVAH, PDVAL
+    // ATAS & DeepChart Macro Framework
+    // =========================================================================
+    if (showPriorDayLevels && priorDayLevels) {
+      const drawHtfLevel = (priceTicks: number, label: string, col: string, dash: number[]) => {
+        if (!priceTicks || priceTicks <= 0) return;
+        const y = priceToY(priceTicks);
+        if (y < 0 || y > chartHeight) return;
+        ctx.save();
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1.3;
+        if (dash.length > 0) ctx.setLineDash(dash);
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(chartRightX, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const text = `${label}: ${(priceTicks * instMeta.tickSize).toFixed(instMeta.priceDecimals)}`;
+        ctx.font = 'bold 9px "JetBrains Mono", monospace';
+        const tw = ctx.measureText(text).width + 8;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        ctx.fillRect(chartRightX - tw - 6, y - 8, tw, 15);
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(chartRightX - tw - 6, y - 8, tw, 15);
+
+        ctx.fillStyle = col;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, chartRightX - 10, y);
+        ctx.restore();
+      };
+
+      drawHtfLevel(priorDayLevels.pdh, 'PDH', '#F87171', [5, 4]);
+      drawHtfLevel(priorDayLevels.pdVah, 'PD-VAH', '#FB923C', [4, 4]);
+      drawHtfLevel(priorDayLevels.pdPoc, 'PD-POC', '#FACC15', []);
+      drawHtfLevel(priorDayLevels.pdVal, 'PD-VAL', '#38BDF8', [4, 4]);
+      drawHtfLevel(priorDayLevels.pdl, 'PDL', '#34D399', [5, 4]);
+    }
+
+    // =========================================================================
     // 2. DEVELOPING VWAP / VALUE AREA CURVES ACROSS BARS
     // Matches smooth purple/green developing curves in media_1794650950575_011ab3f4.jpg
     // =========================================================================
@@ -1654,7 +1800,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
 
       const bodyTop = Math.min(openY, closeY);
       const bodyBottom = Math.max(openY, closeY);
-      const bodyHeight = Math.max(bodyBottom - bodyTop, 3);
+      const minBodyH = barWidth < 6 ? 1.0 : 2.5;
+      const bodyHeight = Math.max(bodyBottom - bodyTop, minBodyH);
 
       const barPrimaryCol = isBullish ? bullPrimary : bearPrimary;
       const barBorderCol = isBullish ? bullBorder : bearBorder;
@@ -1665,19 +1812,23 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
 
       if (!isFootprintDetailed) {
         // ─── Standard Japanese Candlestick (When Zoomed Out or OF Modes Off) ───
+        const centerX = x + barWidth / 2;
         ctx.strokeStyle = barPrimaryCol;
-        ctx.lineWidth = 1.6;
+        ctx.lineWidth = barWidth < 6 ? 1.0 : 1.4;
         ctx.beginPath();
-        ctx.moveTo(x + barWidth / 2, highY);
-        ctx.lineTo(x + barWidth / 2, lowY);
+        ctx.moveTo(centerX, highY);
+        ctx.lineTo(centerX, lowY);
         ctx.stroke();
 
-        const cW = Math.max(barWidth - 4, 3);
+        const cW = Math.max(barWidth > 6 ? barWidth - 2 : Math.max(barWidth, 1.2), 1.0);
+        const candleX = centerX - cW / 2;
         ctx.fillStyle = barPrimaryCol;
-        ctx.fillRect(x + 2, bodyTop, cW, bodyHeight);
-        ctx.strokeStyle = barBorderCol;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x + 2, bodyTop, cW, bodyHeight);
+        ctx.fillRect(candleX, bodyTop, cW, bodyHeight);
+        if (barWidth >= 6) {
+          ctx.strokeStyle = barBorderCol;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(candleX, bodyTop, cW, bodyHeight);
+        }
       } else {
         // ─── DeepChart Signature Left-Spine Candle + Right Footprint Profile & Numbers ───
         const spineW = 5;
@@ -1966,40 +2117,13 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         });
       }
 
-      // B. Stacked Imbalance Zones (≥ 3 consecutive 300% diagonal imbalances) & Unfinished Auctions
+      // B. ATAS Unfinished Auction Detector: High or Low cell has BOTH Bid > 0 and Ask > 0 (unmitigated)
       const recentStartIdx = Math.max(0, analyzedBars.length - 28);
       for (let bIdx = recentStartIdx; bIdx < analyzedBars.length; bIdx++) {
         const b = analyzedBars[bIdx];
         const bx = startX + bIdx * barPitch;
         if (bx + barWidth < 0 || bx > chartRightX) continue;
 
-        // Stacked Buy / Sell Imbalances (Institutional Demand & Supply Zone Rays)
-        b.stacked_imbalances?.forEach((st) => {
-          const isBuySt = st.side === 'Buy';
-          const yTop = priceToY(st.end_price_ticks);
-          const yBot = priceToY(st.start_price_ticks);
-          const zoneTop = Math.min(yTop, yBot) - 3;
-          const zoneH = Math.max(Math.abs(yBot - yTop) + 6, 8);
-          if (zoneTop >= 0 && zoneTop <= chartHeight) {
-            ctx.save();
-            ctx.fillStyle = isBuySt ? 'rgba(0, 230, 118, 0.13)' : 'rgba(244, 63, 94, 0.13)';
-            ctx.fillRect(bx, zoneTop, chartRightX - bx, zoneH);
-            ctx.strokeStyle = isBuySt ? 'rgba(0, 230, 118, 0.65)' : 'rgba(244, 63, 94, 0.65)';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(bx, zoneTop, chartRightX - bx, zoneH);
-            ctx.fillStyle = isBuySt ? '#4ADE80' : '#FDA4AF';
-            ctx.font = 'bold 8px "JetBrains Mono", monospace';
-            ctx.textAlign = 'left';
-            ctx.fillText(
-              `⚡ ${st.levels_count}x ${isBuySt ? 'BUY' : 'SELL'} IMBALANCE ZONE`,
-              bx + 4,
-              zoneTop + zoneH / 2 + 3
-            );
-            ctx.restore();
-          }
-        });
-
-        // ATAS Unfinished Auction Detector: High or Low cell has BOTH Bid > 0 and Ask > 0 (unmitigated)
         if (b.footprint && b.footprint.length >= 2 && bIdx >= analyzedBars.length - 12) {
           const lowCell = b.footprint[0];
           const highCell = b.footprint[b.footprint.length - 1];
@@ -2103,6 +2227,71 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             `🧱 BUY LIMIT WALL [${isLiveL2 ? 'L2 DOM THẬT' : 'ECN TICK'}]: ${w.quantity_units.toLocaleString()} @ ${formatInstrumentPrice(w.price_ticks, instrumentId)}`,
             chartRightX - 6,
             y - 2
+          );
+          ctx.restore();
+        });
+      }
+    }
+
+    // =========================================================================
+    // 4A. EXTENDED STACKED IMBALANCE ZONES (≥ 3 CONSECUTIVE 300% DIAGONAL IMBALANCES)
+    // Institutional Support & Resistance Extended Supply/Demand Zones (ATAS Pro)
+    // =========================================================================
+    if (showStackedImbalances) {
+      const lookbackStart = Math.max(0, analyzedBars.length - 120);
+      for (let bIdx = lookbackStart; bIdx < analyzedBars.length; bIdx++) {
+        const b = analyzedBars[bIdx];
+        const bx = startX + bIdx * barPitch;
+        if (!b.stacked_imbalances || b.stacked_imbalances.length === 0) continue;
+
+        b.stacked_imbalances.forEach((st) => {
+          const isBuySt = st.side?.toLowerCase() === 'buy';
+          const yTop = priceToY(st.end_price_ticks);
+          const yBot = priceToY(st.start_price_ticks);
+          const zoneTop = Math.min(yTop, yBot) - 3;
+          const zoneH = Math.max(Math.abs(yBot - yTop) + 6, 8);
+          if (zoneTop < -50 || zoneTop > chartHeight + 50) return;
+
+          // Check mitigation across subsequent bars
+          let mitigatedX = chartRightX;
+          const minP = Math.min(st.start_price_ticks, st.end_price_ticks);
+          const maxP = Math.max(st.start_price_ticks, st.end_price_ticks);
+          for (let k = bIdx + 1; k < analyzedBars.length; k++) {
+            const kb = analyzedBars[k];
+            if (isBuySt) {
+              if (kb.low_ticks <= minP) {
+                mitigatedX = Math.min(chartRightX, startX + k * barPitch + barWidth / 2);
+                break;
+              }
+            } else {
+              if (kb.high_ticks >= maxP) {
+                mitigatedX = Math.min(chartRightX, startX + k * barPitch + barWidth / 2);
+                break;
+              }
+            }
+          }
+
+          const zoneStartX = Math.max(0, bx);
+          const zoneWidth = mitigatedX - zoneStartX;
+          if (zoneWidth <= 2) return;
+
+          ctx.save();
+          ctx.fillStyle = isBuySt ? 'rgba(0, 230, 118, 0.12)' : 'rgba(244, 63, 94, 0.12)';
+          ctx.fillRect(zoneStartX, zoneTop, zoneWidth, zoneH);
+          ctx.strokeStyle = isBuySt ? 'rgba(0, 230, 118, 0.65)' : 'rgba(244, 63, 94, 0.65)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 3]);
+          ctx.strokeRect(zoneStartX, zoneTop, zoneWidth, zoneH);
+          ctx.setLineDash([]);
+
+          ctx.fillStyle = isBuySt ? '#4ADE80' : '#FDA4AF';
+          ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(
+            `⚡ ${st.levels_count}x ${isBuySt ? 'BUY' : 'SELL'} IMBALANCE`,
+            zoneStartX + 4,
+            zoneTop + zoneH / 2
           );
           ctx.restore();
         });
@@ -3527,10 +3716,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     ctx.fillStyle = '#CBD5E1';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    const timeLabelStep = Math.max(1, Math.ceil(55 / barPitch));
     analyzedBars.forEach((bar, idx) => {
       const centerX = startX + idx * barPitch + barWidth / 2;
       if (centerX >= 25 && centerX <= chartRightX - 15) {
-        if (barWidth >= 42 || idx % 2 === 0) {
+        if (idx % timeLabelStep === 0) {
           const date = new Date(bar.bar_start_us / 1000);
           const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
           ctx.fillText(timeStr, centerX, timeTop + timeAxisH / 2);
@@ -3732,6 +3922,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     showHeatmap,
     showOptions,
     showIcebergs,
+    showPriorDayLevels,
+    showStackedImbalances,
     tickAggregation,
     showHeatmap ? heatmapSlices : null,
     showChartDom || showAbsorption ? orderBook : null,
@@ -4700,6 +4892,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             {radioPill('D-VL', showValueAreaLines, () => setShowValueAreaLines(!showValueAreaLines), 'Session Value Area Lines (dPOC, dVAH, dVAL)')}
             {radioPill('VWAP', showVwap, () => setShowVwap(!showVwap), 'Developing Session VWAP Curve')}
             {radioPill('NPOC', showNakedPoc, () => setShowNakedPoc(!showNakedPoc), 'Naked Unmitigated POC Rays')}
+            {radioPill('HTF-PD', showPriorDayLevels, () => setShowPriorDayLevels(!showPriorDayLevels), 'Mốc Khung Lớn Ngày Hôm Qua (PDH, PDL, PDPOC, PDVAH, PDVAL)')}
+            {radioPill('STK-IMB', showStackedImbalances, () => setShowStackedImbalances(!showStackedImbalances), 'Vùng Mất Cân Bằng Xếp Chồng Kéo Dài (ATAS Stacked Imbalance Zones)')}
             {radioPill(
               'COT/Δ',
               showCotGrid,
