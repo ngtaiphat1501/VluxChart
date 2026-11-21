@@ -47,6 +47,7 @@ import {
 import { liveFeedService, getFootprintTickStep, timeframeUsToBybitInterval } from './services/liveFeedService';
 import { computeSessionVwap, recalculateOptionsLevels } from './utils/orderFlowMath';
 import { adaptSnapshotToTimeframe } from './utils/multiTimeframeAggregator';
+import { mt5BridgeService } from './services/mt5BridgeService';
 
 function getBybitSymbol(instrumentId: string): string {
   if (instrumentId.startsWith('MT5:')) return instrumentId;
@@ -496,6 +497,9 @@ export function App() {
 
   const handleInstrumentChange = async (instrumentId: string) => {
     saveWorkspaceConfig({ instrumentId });
+    if (instrumentId.startsWith('MT5:')) {
+      mt5BridgeService.syncFromRealMt5().catch(() => {});
+    }
     let newSnap: ChartSnapshotDTO | null = null;
     try {
       if ((window as any).__TAURI_INTERNALS__) {
@@ -991,6 +995,18 @@ export function App() {
   const latestBar = snapshot.active_bar || (snapshot.bars.length > 0 ? snapshot.bars[snapshot.bars.length - 1] : null);
   const totalCvd = snapshot.bars.reduce((acc, b) => acc + (b.delta_units || 0), 0) + (snapshot.active_bar ? (snapshot.active_bar.delta_units || 0) : 0);
 
+  const handleMt5ButtonClick = async () => {
+    // 1-Click Auto Connect directly without manual friction!
+    const res = await mt5BridgeService.syncFromRealMt5();
+    if (res.ok) {
+      if (!snapshot.instrument_id.startsWith('MT5:')) {
+        handleInstrumentChange('MT5:CFD:XAUUSD');
+      }
+      return;
+    }
+    setIsMt5ModalOpen(true);
+  };
+
   return (
     <div
       style={{
@@ -1021,7 +1037,8 @@ export function App() {
         onOpenBacktest={() => setIsBacktestOpen(true)}
         onOpenZoneInspector={() => setIsZoneInspectorOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenMt5Modal={() => setIsMt5ModalOpen(true)}
+        onOpenMt5Modal={handleMt5ButtonClick}
+        onOpenIndicators={() => window.dispatchEvent(new CustomEvent('deepchart:open_indicators'))}
         layoutPreset={layoutPreset}
         onLayoutPresetChange={handleLayoutPresetChange}
         activeRightTab={rightDockTab}

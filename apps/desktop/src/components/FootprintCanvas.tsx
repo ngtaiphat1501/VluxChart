@@ -34,6 +34,7 @@ import {
 } from '../utils/instrumentRegistry';
 import { mt5BridgeService, Mt5OrderTicket } from '../services/mt5BridgeService';
 import { optionsLiveService, LiveOptionsChainResult } from '../services/optionsLiveService';
+import { IndicatorsModal, IndicatorConfigState } from './IndicatorsModal';
 
 interface FootprintCanvasProps {
   bars: BarDTO[];
@@ -173,11 +174,32 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   const [showValueAreaLines, setShowValueAreaLines] = useState<boolean>(true); // D-VL (Session VAH/VAL/POC lines)
   const [showVwap, setShowVwap] = useState<boolean>(true); // VWAP / Developing Value line
   const [showNakedPoc, setShowNakedPoc] = useState<boolean>(false); // NPOC Rays
-  // Mutually exclusive bottom sub-panel so they never stack and crush chart height
-  const [activeSubPanel, setActiveSubPanel] = useState<'cot' | 'vol' | 'cvd' | 'none'>(initialBottomSubPanel);
-  const showCotGrid = activeSubPanel === 'cot';
-  const showVolHistogram = activeSubPanel === 'vol';
-  const showCvdPanel = activeSubPanel === 'cvd';
+  // Independent ATAS-Style Indicator Sub-Panels (Stacked cleanly under main chart)
+  const [showVolHistogram, setShowVolHistogram] = useState<boolean>(
+    initialBottomSubPanel === 'vol' || initialBottomSubPanel === undefined
+  );
+  const [showCvdPanel, setShowCvdPanel] = useState<boolean>(initialBottomSubPanel === 'cvd');
+  const [showCotGrid, setShowCotGrid] = useState<boolean>(initialBottomSubPanel === 'cot');
+  const [isIndicatorsModalOpen, setIsIndicatorsModalOpen] = useState<boolean>(false);
+
+  // Listen to Global "deepchart:open_indicators" or Ctrl+I shortcut
+  useEffect(() => {
+    const handleOpen = () => setIsIndicatorsModalOpen(true);
+    window.addEventListener('deepchart:open_indicators', handleOpen);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'i' || e.key === 'I')) {
+        e.preventDefault();
+        setIsIndicatorsModalOpen((p) => !p);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('deepchart:open_indicators', handleOpen);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   const [showBarHeadStats, setShowBarHeadStats] = useState<boolean>(true); // Delta & Volume stacked above bar high wick
   const [showChartDom, setShowChartDom] = useState<boolean>(!hideBottomToolbar); // Chart DOM Trading strip next to price axis
@@ -192,6 +214,62 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   const [showStackedImbalances, setShowStackedImbalances] = useState<boolean>(true); // STK-IMB: Extended Stacked Imbalance Zones
   const [liveOptionsChain, setLiveOptionsChain] = useState<LiveOptionsChainResult | null>(null);
   const lastReportedBoundsRef = useRef<{ minPrice: number; maxPrice: number; chartHeight: number; panY: number } | null>(null);
+
+  const handleApplyPreset = (presetName: 'atas_standard' | 'scalper_flow' | 'macro_institutional' | 'clean_price') => {
+    if (presetName === 'atas_standard') {
+      setShowOfBa(true);
+      setShowOfVp(true);
+      setShowOfDeltaP(false);
+      setShowVolumeProfile(true);
+      setShowValueAreaLines(true);
+      setShowPriorDayLevels(true);
+      setShowVwap(true);
+      setShowVolHistogram(true);
+      setShowCvdPanel(true);
+      setShowCotGrid(false);
+      setShowStackedImbalances(true);
+      setShowAbsorption(false);
+      setShowHeatmap(false);
+      setShowOptions(false);
+    } else if (presetName === 'scalper_flow') {
+      setShowOfBa(true);
+      setShowOfVp(false);
+      setShowOfDeltaP(true);
+      setShowStackedImbalances(true);
+      setShowAbsorption(true);
+      setShowChartDom(true);
+      setShowVolHistogram(true);
+      setShowCvdPanel(true);
+      setShowCotGrid(false);
+    } else if (presetName === 'macro_institutional') {
+      setShowPriorDayLevels(true);
+      setShowVolumeProfile(true);
+      setShowValueAreaLines(true);
+      setShowVwap(true);
+      setShowNakedPoc(true);
+      setShowCotGrid(true);
+      setShowVolHistogram(true);
+      setShowCvdPanel(true);
+      setShowSlClusters(true);
+    } else if (presetName === 'clean_price') {
+      setShowOfBa(false);
+      setShowOfVp(false);
+      setShowOfDeltaP(false);
+      setShowVolumeProfile(true);
+      setShowValueAreaLines(false);
+      setShowPriorDayLevels(false);
+      setShowVwap(false);
+      setShowNakedPoc(false);
+      setShowStackedImbalances(false);
+      setShowVolHistogram(false);
+      setShowCvdPanel(false);
+      setShowCotGrid(false);
+      setShowSlClusters(false);
+      setShowAbsorption(false);
+      setShowHeatmap(false);
+      setShowOptions(false);
+    }
+  };
 
   // Fetch 100% Real Deribit Options Chain when STRIKES overlay is active on BTC / ETH
   useEffect(() => {
@@ -449,11 +527,13 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     const height = rect.height;
 
     const timeAxisH = 20;
-    const cotRowH = 16;
+    const activeSubPanelsCount = (showCotGrid ? 1 : 0) + (showVolHistogram ? 1 : 0) + (showCvdPanel ? 1 : 0);
+    const subH = activeSubPanelsCount === 1 ? 72 : activeSubPanelsCount === 2 ? 58 : 50;
+    const cotRowH = Math.max(12, Math.floor(subH / 4));
     const cotTableH = showCotGrid ? cotRowH * 4 : 0;
-    const volHistH = showVolHistogram ? 72 : 0;
-    const cvdPanelH = showCvdPanel ? 64 : 0;
-    const chartHeight = Math.max(120, height - timeAxisH - cotTableH - volHistH - cvdPanelH);
+    const volHistH = showVolHistogram ? subH : 0;
+    const cvdPanelH = showCvdPanel ? subH : 0;
+    const chartHeight = Math.max(150, height - timeAxisH - cotTableH - volHistH - cvdPanelH);
 
     const axisW = 72;
     const domStripW = showChartDom ? 52 : 0;
@@ -858,6 +938,32 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       const picked = Math.round(helpers.yToPrice(mouseY) / instMeta.tickSize) * instMeta.tickSize;
       onPricePickedFromChart?.(picked);
       return;
+    }
+
+    // 0B. Check if user clicked on Sub-panel Close Buttons "✕"
+    if (mouseX >= domX - 26 && mouseX <= domX) {
+      let curY = chartHeight;
+      if (showVolHistogram && helpers.volHistH > 0) {
+        if (mouseY >= curY && mouseY <= curY + 20) {
+          setShowVolHistogram(false);
+          return;
+        }
+        curY += helpers.volHistH;
+      }
+      if (showCvdPanel && helpers.cvdPanelH > 0) {
+        if (mouseY >= curY && mouseY <= curY + 20) {
+          setShowCvdPanel(false);
+          return;
+        }
+        curY += helpers.cvdPanelH;
+      }
+      if (showCotGrid && helpers.cotTableH > 0) {
+        if (mouseY >= curY && mouseY <= curY + 20) {
+          setShowCotGrid(false);
+          return;
+        }
+        curY += helpers.cotTableH;
+      }
     }
 
     // 1. Check if user clicked the TradingView "+" Quick-Order button on the Price Axis
@@ -3483,10 +3589,24 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         }
       });
 
+      // Sub-panel Title & Live Value Header (ATAS Style)
+      const latestBarVol = analyzedBars[analyzedBars.length - 1];
+      const latestVol = latestBarVol ? latestBarVol.stats.totalVolume : 0;
       ctx.fillStyle = '#F8FAFC';
-      ctx.font = 'bold 10.5px "Inter", sans-serif';
+      ctx.font = 'bold 10px "Inter", sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText('Volume', 8, volTop + 14);
+      ctx.fillText(`📊 VOLUME  ·  Live: ${latestVol.toLocaleString()}`, 8, volTop + 13);
+
+      // Close Button "✕" on Right edge of Sub-panel Header
+      ctx.fillStyle = '#1E2430';
+      ctx.fillRect(chartRightX - 22, volTop + 2, 18, 14);
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(chartRightX - 22, volTop + 2, 18, 14);
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = 'bold 9.5px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('✕', chartRightX - 13, volTop + 12);
       ctx.restore();
 
       // Right-axis Volume Scale labels (0, Mid, Max) matching media_1794650904572_a0f8fcfc.jpg
@@ -3573,11 +3693,39 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         ctx.fill();
       }
 
-      ctx.fillStyle = '#00E5FF';
-      ctx.font = 'bold 10px "JetBrains Mono", monospace';
-      ctx.textAlign = 'left';
+      // Sub-panel Title & Live Value Header (ATAS Style)
       const latestCvd = analyzedBars[analyzedBars.length - 1]?.stats.cvd || 0;
-      ctx.fillText(`CVD (${latestCvd >= 0 ? '+' : ''}${latestCvd.toLocaleString()})`, 8, cvdTop + 14);
+      ctx.fillStyle = '#00E5FF';
+      ctx.font = 'bold 10px "Inter", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(`📈 CVD  ·  Net: ${latestCvd >= 0 ? '+' : ''}${latestCvd.toLocaleString()}`, 8, cvdTop + 13);
+
+      // Close Button "✕" on Right edge of CVD Header
+      ctx.fillStyle = '#1E2430';
+      ctx.fillRect(chartRightX - 22, cvdTop + 2, 18, 14);
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(chartRightX - 22, cvdTop + 2, 18, 14);
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = 'bold 9.5px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('✕', chartRightX - 13, cvdTop + 12);
+      ctx.restore();
+
+      // Right-axis CVD Scale labels
+      ctx.save();
+      ctx.fillStyle = '#00E5FF';
+      ctx.font = '9.5px "JetBrains Mono", monospace';
+      ctx.textAlign = 'right';
+      const fmtCvd = (v: number) => {
+        const s = v >= 0 ? '+' : '';
+        return Math.abs(v) >= 1000 ? `${s}${Math.round(v / 1000)}K` : `${s}${Math.round(v)}`;
+      };
+      ctx.fillText(fmtCvd(maxVisCvd), width - 8, cvdTop + 12);
+      if (minVisCvd <= 0 && maxVisCvd >= 0) {
+        ctx.fillText('0', width - 8, cvdToY(0) + 3);
+      }
+      ctx.fillText(fmtCvd(minVisCvd), width - 8, cvdBottom - 4);
       ctx.restore();
     }
 
@@ -3697,6 +3845,17 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       cotLabels.forEach((lbl, li) => {
         ctx.fillText(lbl, chartRightX + 6, cotTop + li * cotRowH + cotRowH / 2);
       });
+
+      // Close Button "✕" on Right edge of COT header
+      ctx.fillStyle = '#1E2430';
+      ctx.fillRect(width - 24, cotTop + 2, 18, 14);
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(width - 24, cotTop + 2, 18, 14);
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = 'bold 9.5px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('✕', width - 15, cotTop + 12);
     }
 
     // =========================================================================
@@ -3912,7 +4071,9 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     showValueAreaLines,
     showVwap,
     showNakedPoc,
-    activeSubPanel,
+    showVolHistogram,
+    showCvdPanel,
+    showCotGrid,
     showBarHeadStats,
     showChartDom,
     showSlClusters,
@@ -3962,7 +4123,9 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       setShowOfDeltaP(false);
       setShowVolumeProfile(true);
       setShowValueAreaLines(true);
-      setActiveSubPanel('cot');
+      setShowCotGrid(true);
+      setShowVolHistogram(false);
+      setShowCvdPanel(false);
       setShowBubbles(false);
       setShowHeatmap(false);
     } else if (next === 1) {
@@ -3971,7 +4134,9 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       setShowOfBa(true);
       setShowOfDeltaP(false);
       setShowVolumeProfile(true);
-      setActiveSubPanel('vol');
+      setShowVolHistogram(true);
+      setShowCvdPanel(false);
+      setShowCotGrid(false);
       setShowBubbles(false);
       setShowHeatmap(false);
     } else if (next === 2) {
@@ -3980,7 +4145,9 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       setShowOfBa(true);
       setShowOfDeltaP(true);
       setShowVolumeProfile(true);
-      setActiveSubPanel('cvd');
+      setShowCvdPanel(true);
+      setShowVolHistogram(true);
+      setShowCotGrid(false);
       setShowBubbles(false);
       setShowHeatmap(false);
     } else {
@@ -3991,7 +4158,9 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       setShowVolumeProfile(true);
       setShowValueAreaLines(true);
       setShowVwap(true);
-      setActiveSubPanel('vol');
+      setShowVolHistogram(true);
+      setShowCvdPanel(false);
+      setShowCotGrid(false);
     }
     handleFitContent();
   };
@@ -4858,12 +5027,35 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
-                marginRight: '4px',
+                marginRight: '2px',
               }}
               title="Chuyển đổi nhanh bộ mẫu hiển thị chuẩn DeepCharts / ATAS & Auto-Fit"
             >
               <span>▤</span>
               <span>Templates</span>
+            </button>
+
+            {/* ATAS Indicators Manager Dialog Button (Ctrl + I) */}
+            <button
+              onClick={() => setIsIndicatorsModalOpen(true)}
+              style={{
+                background: '#1E293B',
+                color: '#38BDF8',
+                border: '1px solid #38BDF8',
+                borderRadius: '3px',
+                padding: '2px 7px',
+                fontSize: '10px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginRight: '4px',
+              }}
+              title="Mở Thư Viện Quản Lý Chỉ Báo Định Lượng & Order Flow (Ctrl + I)"
+            >
+              <span>📈</span>
+              <span>Chỉ Báo (Ctrl+I)</span>
             </button>
 
             {radioPill(
@@ -4895,22 +5087,22 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             {radioPill('HTF-PD', showPriorDayLevels, () => setShowPriorDayLevels(!showPriorDayLevels), 'Mốc Khung Lớn Ngày Hôm Qua (PDH, PDL, PDPOC, PDVAH, PDVAL)')}
             {radioPill('STK-IMB', showStackedImbalances, () => setShowStackedImbalances(!showStackedImbalances), 'Vùng Mất Cân Bằng Xếp Chồng Kéo Dài (ATAS Stacked Imbalance Zones)')}
             {radioPill(
-              'COT/Δ',
-              showCotGrid,
-              () => setActiveSubPanel(showCotGrid ? 'none' : 'cot'),
-              'Bảng lưới nhiệt 4 hàng COT Bar / Δ Qty. / Δ % / Δ V dưới chân biểu đồ'
-            )}
-            {radioPill(
               'VOL',
               showVolHistogram,
-              () => setActiveSubPanel(showVolHistogram ? 'none' : 'vol'),
-              'Biểu đồ cột Volume Xanh lá / Tím dưới chân biểu đồ'
+              () => setShowVolHistogram(!showVolHistogram),
+              'Cửa sổ phụ Volume Histogram dưới chân biểu đồ (ATAS Pane)'
             )}
             {radioPill(
               'CVD',
               showCvdPanel,
-              () => setActiveSubPanel(showCvdPanel ? 'none' : 'cvd'),
-              'Biểu đồ đường Cumulative Volume Delta dưới chân biểu đồ'
+              () => setShowCvdPanel(!showCvdPanel),
+              'Cửa sổ phụ Cumulative Volume Delta (CVD) dưới chân biểu đồ'
+            )}
+            {radioPill(
+              'COT/Δ',
+              showCotGrid,
+              () => setShowCotGrid(!showCotGrid),
+              'Cửa sổ phụ Lưới nhiệt 4 hàng COT Bar / Δ Qty. / Δ % / Δ V'
             )}
             {radioPill('HEAD Δ/V', showBarHeadStats, () => setShowBarHeadStats(!showBarHeadStats), 'Bar Delta & Volume Summary Above High Wick')}
             {radioPill('SL/LIQ', showSlClusters, () => setShowSlClusters(!showSlClusters), 'Bản đồ Vùng Tụ Cắt Lỗ (Stop-Loss Clusters) & Thanh Lý 50x-100x (BSL/SSL Pools)')}
@@ -4989,6 +5181,55 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           </div>
         </div>
       )}
+
+      {/* Institutional ATAS Indicators Manager Modal */}
+      <IndicatorsModal
+        isOpen={isIndicatorsModalOpen}
+        onClose={() => setIsIndicatorsModalOpen(false)}
+        config={{
+          showVolHistogram,
+          showCvdPanel,
+          showCotGrid,
+          showOfBa,
+          showOfVp,
+          showOfDeltaP,
+          showBarHeadStats,
+          showPriorDayLevels,
+          showVolumeProfile,
+          showValueAreaLines,
+          showVwap,
+          showNakedPoc,
+          showStackedImbalances,
+          showSlClusters,
+          showAbsorption,
+          showOptions,
+          showBubbles,
+          showHeatmap,
+          showChartDom,
+        }}
+        onChangeConfig={(updates) => {
+          if (updates.showVolHistogram !== undefined) setShowVolHistogram(updates.showVolHistogram);
+          if (updates.showCvdPanel !== undefined) setShowCvdPanel(updates.showCvdPanel);
+          if (updates.showCotGrid !== undefined) setShowCotGrid(updates.showCotGrid);
+          if (updates.showOfBa !== undefined) setShowOfBa(updates.showOfBa);
+          if (updates.showOfVp !== undefined) setShowOfVp(updates.showOfVp);
+          if (updates.showOfDeltaP !== undefined) setShowOfDeltaP(updates.showOfDeltaP);
+          if (updates.showBarHeadStats !== undefined) setShowBarHeadStats(updates.showBarHeadStats);
+          if (updates.showPriorDayLevels !== undefined) setShowPriorDayLevels(updates.showPriorDayLevels);
+          if (updates.showVolumeProfile !== undefined) setShowVolumeProfile(updates.showVolumeProfile);
+          if (updates.showValueAreaLines !== undefined) setShowValueAreaLines(updates.showValueAreaLines);
+          if (updates.showVwap !== undefined) setShowVwap(updates.showVwap);
+          if (updates.showNakedPoc !== undefined) setShowNakedPoc(updates.showNakedPoc);
+          if (updates.showStackedImbalances !== undefined) setShowStackedImbalances(updates.showStackedImbalances);
+          if (updates.showSlClusters !== undefined) setShowSlClusters(updates.showSlClusters);
+          if (updates.showAbsorption !== undefined) setShowAbsorption(updates.showAbsorption);
+          if (updates.showOptions !== undefined) setShowOptions(updates.showOptions);
+          if (updates.showBubbles !== undefined) setShowBubbles(updates.showBubbles);
+          if (updates.showHeatmap !== undefined) setShowHeatmap(updates.showHeatmap);
+          if (updates.showChartDom !== undefined) setShowChartDom(updates.showChartDom);
+        }}
+        onApplyPreset={handleApplyPreset}
+      />
     </div>
   );
 };

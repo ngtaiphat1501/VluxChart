@@ -31,6 +31,7 @@ interface ToolbarProps {
   multiChartLayout?: '1x1' | '2v' | '2h' | '3L' | '2x2';
   onMultiChartLayoutChange?: (layout: '1x1' | '2v' | '2h' | '3L' | '2x2') => void;
   onOpenMt5Modal?: () => void;
+  onOpenIndicators?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -63,6 +64,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   multiChartLayout = '1x1',
   onMultiChartLayoutChange,
   onOpenMt5Modal,
+  onOpenIndicators,
 }) => {
   const isReplayMode = !!snapshot.playback?.is_replay_mode;
   const isPlaying = snapshot.playback?.state === 'Playing';
@@ -172,6 +174,29 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             📊 Footprint
           </button>
         </div>
+
+        {/* 2B. Indicators Manager Button (ATAS Ctrl+I Standard) */}
+        <button
+          onClick={onOpenIndicators}
+          style={{
+            background: '#1F2229',
+            border: '1px solid #323A4D',
+            borderRadius: '4px',
+            color: '#38BDF8',
+            padding: '2px 7px',
+            fontSize: '11px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            height: '26px',
+          }}
+          title="Mở Thư Viện Quản Lý Chỉ Báo Định Lượng & Order Flow (Ctrl + I)"
+        >
+          <span>📈</span>
+          <span>Chỉ báo</span>
+        </button>
 
         {/* 3. Zone & Volume Profile Inspector Icon */}
         <button

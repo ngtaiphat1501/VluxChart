@@ -85,12 +85,18 @@ export const Mt5ConnectionModal: React.FC<Mt5ConnectionModalProps> = ({
     if (res.ok) {
       setStatusMessage({
         ok: true,
-        text: `Kết nối thành công tới MT5 #${latest.login} (${latest.server}) — Chủ TK: ${latest.accountName} · Số dư: $${latest.balanceUsd.toLocaleString()} · Equity: $${latest.equityUsd.toLocaleString()}`,
+        text: `Kết nối thành công tới MT5 #${latest.login} (${latest.server}) — Chủ TK: ${latest.accountName} · Số dư: $${latest.balanceUsd.toLocaleString()} · Đang mở biểu đồ...`,
       });
+      setTimeout(() => {
+        if (!currentInstrumentId.startsWith('MT5:')) {
+          onSelectInstrument('MT5:CFD:XAUUSD');
+        }
+        onClose();
+      }, 600);
     } else {
       setStatusMessage({
         ok: false,
-        text: res.error || 'Không tìm thấy MetaTrader 5 đang chạy trên máy.',
+        text: res.error || 'Không tìm thấy MetaTrader 5 đang chạy trên máy. Vui lòng mở MT5 trên máy tính của bạn trước.',
       });
     }
   };
@@ -270,14 +276,18 @@ export const Mt5ConnectionModal: React.FC<Mt5ConnectionModalProps> = ({
               color: '#07090E',
               border: 'none',
               borderRadius: '6px',
-              padding: '8px 14px',
-              fontSize: '11.5px',
+              padding: '9px 16px',
+              fontSize: '12px',
               fontWeight: 900,
               cursor: 'pointer',
-              boxShadow: '0 4px 12px rgba(0, 230, 118, 0.3)',
+              boxShadow: '0 4px 14px rgba(0, 230, 118, 0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
             }}
           >
-            🔄 Đồng Bộ Ngay Từ MT5 Đang Mở
+            <span>⚡</span>
+            <span>TỰ ĐỘNG KẾT NỐI & VÀO BIỂU ĐỒ (1-Click)</span>
           </button>
         </div>
 
