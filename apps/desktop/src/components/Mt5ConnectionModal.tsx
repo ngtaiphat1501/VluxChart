@@ -283,10 +283,10 @@ export const Mt5ConnectionModal: React.FC<Mt5ConnectionModalProps> = ({
               boxShadow: '0 4px 14px rgba(0, 230, 118, 0.4)',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '6px',
             }}
           >
-            <span>⚡</span>
             <span>TỰ ĐỘNG KẾT NỐI & VÀO BIỂU ĐỒ (1-Click)</span>
           </button>
         </div>
@@ -343,7 +343,7 @@ export const Mt5ConnectionModal: React.FC<Mt5ConnectionModalProps> = ({
                         fontWeight: 800,
                       }}
                     >
-                      {isClosed ? '⏸ Đóng cửa cuối tuần' : '🟢 Đang mở (Live)'}
+                      {isClosed ? 'Đóng cửa cuối tuần' : 'Đang mở (Live)'}
                     </span>
                   </div>
                   <div style={{ fontSize: '10.5px', fontFamily: 'JetBrains Mono, monospace', color: '#CBD5E1', fontWeight: 600 }}>
@@ -485,7 +485,7 @@ export const Mt5ConnectionModal: React.FC<Mt5ConnectionModalProps> = ({
               marginBottom: '14px',
             }}
           >
-            {statusMessage.ok ? '✓ ' : '⚠️ '}
+            {statusMessage.ok ? '✓ ' : '! '}
             {statusMessage.text}
           </div>
         )}
@@ -493,7 +493,7 @@ export const Mt5ConnectionModal: React.FC<Mt5ConnectionModalProps> = ({
         {/* Footer Actions */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
           <div style={{ fontSize: '10.5px', color: '#94A3B8' }}>
-            💡 Khi đặt lệnh trên DeepChart, lệnh sẽ gửi thẳng vào phần mềm <b>MetaTrader 5</b> của bạn qua kết nối trực tiếp.
+            Khi đặt lệnh trên VluxChart, lệnh sẽ gửi thẳng vào phần mềm <b>MetaTrader 5</b> của bạn qua kết nối trực tiếp.
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
@@ -526,7 +526,7 @@ export const Mt5ConnectionModal: React.FC<Mt5ConnectionModalProps> = ({
                 boxShadow: '0 4px 14px rgba(0, 230, 118, 0.35)',
               }}
             >
-              {isConnecting ? 'Đang kết nối MT5...' : '⚡ Kết nối & Đồng bộ Tài khoản MT5'}
+              {isConnecting ? 'Đang kết nối MT5...' : 'Kết nối & Đồng bộ Tài khoản MT5'}
             </button>
           </div>
         </div>

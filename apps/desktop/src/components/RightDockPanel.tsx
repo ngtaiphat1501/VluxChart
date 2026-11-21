@@ -307,7 +307,7 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
                 <span style={{ color: '#00E5FF', fontWeight: 800 }}>
                   ● MT5 {mt5Account.broker} (#{mt5Account.login})
                 </span>
-                <span style={{ color: '#94A3B8', fontSize: '9.5px' }}>1:{mt5Account.leverage} ⚙</span>
+                <span style={{ color: '#94A3B8', fontSize: '9.5px' }}>1:{mt5Account.leverage}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#CBD5E1', fontFamily: 'monospace' }}>
                 <span>{symbolShort}</span>
@@ -487,7 +487,7 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
                     }}
                     title="Bấm vào đây rồi click trực tiếp lên mức giá bất kỳ trên Biểu đồ"
                   >
-                    {isPickingPriceOnChart ? '🎯 Click lên Chart...' : '🎯 Chọn trên Chart'}
+                    {isPickingPriceOnChart ? 'Click lên Chart...' : 'Chọn trên Chart'}
                   </button>
                 </div>
 
@@ -916,7 +916,7 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
                 }}
                 title="Dời Stop Loss tất cả lệnh đang mở về đúng giá Entry (Hòa vốn - Breakeven)"
               >
-                🛡 Hòa Vốn (BE)
+                Hòa Vốn (BE)
               </button>
               <button
                 onClick={() => mt5BridgeService.reverseAll(snapshot.instrument_id, currentPriceTicks)}
@@ -965,7 +965,7 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
                 }}
                 title="Đóng tất cả vị thế đang mở (Flatten All)"
               >
-                ⚡ Đóng Hết ({openPositions.length})
+                Đóng Hết ({openPositions.length})
               </button>
             </div>
 
@@ -1200,7 +1200,7 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
 
                 <div style={{ background: '#182231', border: '1px solid #283241', borderRadius: '6px', padding: '10px 12px' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#A78BFA', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    🌊 Dòng Lệnh Vi Mô (Order Flow)
+                    Dòng Lệnh Vi Mô (Order Flow)
                   </div>
                   <p style={{ margin: 0, fontSize: '11px', color: '#CFD8DC', lineHeight: '1.5' }}>
                     {narrative.order_flow_summary}
@@ -1209,7 +1209,7 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
 
                 <div style={{ background: '#182231', border: '1px solid #283241', borderRadius: '6px', padding: '10px 12px' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#00B4D8', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    🎯 Vùng Quyền Chọn (Options Confluence)
+                    Vùng Quyền Chọn (Options Confluence)
                   </div>
                   <p style={{ margin: '0 0 6px 0', fontSize: '11px', color: '#CFD8DC', lineHeight: '1.5' }}>
                     {narrative.options_confluence}

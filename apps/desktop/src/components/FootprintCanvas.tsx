@@ -104,8 +104,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   isTradingPanelOpen = false,
   onToggleTradingPanel,
   paneId = 'pane-1',
-  hideBottomToolbar = false,
-  initialBottomSubPanel = 'cot',
+  hideBottomToolbar = true,
+  initialBottomSubPanel = 'vol',
   forcedDisplayMode,
   syncedCrosshair,
   onCrosshairSync,
@@ -202,7 +202,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   }, []);
 
   const [showBarHeadStats, setShowBarHeadStats] = useState<boolean>(true); // Delta & Volume stacked above bar high wick
-  const [showChartDom, setShowChartDom] = useState<boolean>(!hideBottomToolbar); // Chart DOM Trading strip next to price axis
+  const [showChartDom, setShowChartDom] = useState<boolean>(false); // Chart DOM Trading strip next to price axis (Disabled by default to avoid duplicate trading UI)
   const [showSlClusters, setShowSlClusters] = useState<boolean>(false); // Stop-Loss Clusters & Liquidation Pools (BSL/SSL)
   const [showAbsorption, setShowAbsorption] = useState<boolean>(false); // Passive Limit Walls, Stacked Imbalances, Absorption & Unfinished Auction
   const [showSignals, setShowSignals] = useState<boolean>(true);
@@ -504,7 +504,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     priceTicks: number;
     timeUs: number;
   } | null>(null);
-  const [showOneClickBar, setShowOneClickBar] = useState<boolean>(true);
+  const [showOneClickBar, setShowOneClickBar] = useState<boolean>(false);
   const [oneClickLots, setOneClickLots] = useState<number>(1.0);
   const [mt5Tickets, setMt5Tickets] = useState<Mt5OrderTicket[]>(() => mt5BridgeService.getTickets(instrumentId));
 
@@ -2208,7 +2208,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           if (anchorY < 10 || anchorY > chartHeight - 10) return;
 
           ctx.save();
-          const badgeText = isBull ? '🧊 ▲ BUY ABSORPTION' : '🧊 ▼ SELL ABSORPTION';
+          const badgeText = isBull ? 'BUY ABSORPTION' : 'SELL ABSORPTION';
           ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
           const tw = ctx.measureText(badgeText).width + 8;
           ctx.fillStyle = isBull ? 'rgba(0, 230, 118, 0.18)' : 'rgba(244, 63, 94, 0.18)';
@@ -2255,7 +2255,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
               ctx.fillStyle = '#FBBF24';
               ctx.font = 'bold 8px "JetBrains Mono", monospace';
               ctx.textAlign = 'right';
-              ctx.fillText('⚠️ UNFINISHED AUCTION (HIGH)', chartRightX - 8, hy - 3);
+              ctx.fillText('UNFINISHED AUCTION (HIGH)', chartRightX - 8, hy - 3);
               ctx.restore();
             }
           }
@@ -2274,7 +2274,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
               ctx.fillStyle = '#FBBF24';
               ctx.font = 'bold 8px "JetBrains Mono", monospace';
               ctx.textAlign = 'right';
-              ctx.fillText('⚠️ UNFINISHED AUCTION (LOW)', chartRightX - 8, ly + 9);
+              ctx.fillText('UNFINISHED AUCTION (LOW)', chartRightX - 8, ly + 9);
               ctx.restore();
             }
           }
@@ -2307,7 +2307,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
           ctx.textAlign = 'right';
           ctx.fillText(
-            `🧱 SELL LIMIT WALL [${isLiveL2 ? 'L2 DOM THẬT' : 'ECN TICK'}]: ${w.quantity_units.toLocaleString()} @ ${formatInstrumentPrice(w.price_ticks, instrumentId)}`,
+            `LIMIT WALL [SELL] [${isLiveL2 ? 'L2 DOM' : 'ECN TICK'}]: ${w.quantity_units.toLocaleString()} @ ${formatInstrumentPrice(w.price_ticks, instrumentId)}`,
             chartRightX - 6,
             y - 2
           );
@@ -2330,7 +2330,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
           ctx.textAlign = 'right';
           ctx.fillText(
-            `🧱 BUY LIMIT WALL [${isLiveL2 ? 'L2 DOM THẬT' : 'ECN TICK'}]: ${w.quantity_units.toLocaleString()} @ ${formatInstrumentPrice(w.price_ticks, instrumentId)}`,
+            `LIMIT WALL [BUY] [${isLiveL2 ? 'L2 DOM' : 'ECN TICK'}]: ${w.quantity_units.toLocaleString()} @ ${formatInstrumentPrice(w.price_ticks, instrumentId)}`,
             chartRightX - 6,
             y - 2
           );
@@ -2395,7 +2395,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
           ctx.fillText(
-            `⚡ ${st.levels_count}x ${isBuySt ? 'BUY' : 'SELL'} IMBALANCE`,
+            `${st.levels_count}x ${isBuySt ? 'BUY' : 'SELL'} IMBALANCE`,
             zoneStartX + 4,
             zoneTop + zoneH / 2
           );
@@ -2497,8 +2497,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
 
         const estStopVol = Math.round(pool.vol * 0.65);
         const label = pool.swept
-          ? `⚡ BSL STOP-HUNT SWEPT! (${formatInstrumentPrice(pool.priceTicks, instrumentId)})`
-          : `🔥 [MÔ HÌNH ƯỚC TÍNH] VÙNG TỤ SL SHORT / LIQ 50x-100x (BSL @ ${formatInstrumentPrice(pool.priceTicks, instrumentId)} · ~${estStopVol.toLocaleString()} Vol)`;
+          ? `BSL STOP-HUNT SWEPT (${formatInstrumentPrice(pool.priceTicks, instrumentId)})`
+          : `[EST] BSL LIQUIDATION POOL (@ ${formatInstrumentPrice(pool.priceTicks, instrumentId)} · ~${estStopVol.toLocaleString()} Vol)`;
         ctx.fillStyle = pool.swept ? '#4ADE80' : '#FBBF24';
         ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
         ctx.textAlign = 'right';
@@ -2531,8 +2531,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
 
         const estStopVol = Math.round(pool.vol * 0.65);
         const label = pool.swept
-          ? `⚡ SSL STOP-HUNT SWEPT! (${formatInstrumentPrice(pool.priceTicks, instrumentId)})`
-          : `🔥 [MÔ HÌNH ƯỚC TÍNH] VÙNG TỤ SL LONG / LIQ 50x-100x (SSL @ ${formatInstrumentPrice(pool.priceTicks, instrumentId)} · ~${estStopVol.toLocaleString()} Vol)`;
+          ? `SSL STOP-HUNT SWEPT (${formatInstrumentPrice(pool.priceTicks, instrumentId)})`
+          : `[EST] SSL LIQUIDATION POOL (@ ${formatInstrumentPrice(pool.priceTicks, instrumentId)} · ~${estStopVol.toLocaleString()} Vol)`;
         ctx.fillStyle = pool.swept ? '#4ADE80' : '#38BDF8';
         ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
         ctx.textAlign = 'right';
@@ -2557,7 +2557,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         const venueTag = liveOptionsChain.currency === 'XAU' ? 'CBOE GOLD' : 'DERIBIT LIVE';
         // Top HUD Banner showing 100% Real Options Telemetry (even if walls are outside 1m zoom!)
         ctx.save();
-        const hudText = `🟢 ${venueTag} OPTIONS (${liveOptionsChain.totalContractsCount} HĐ) · CALL WALL: $${callWallUsd.toLocaleString()} · PUT WALL: $${putWallUsd.toLocaleString()} · ZERO γ: $${zeroGammaUsd.toLocaleString()} · MAX PAIN: $${maxPainUsd.toLocaleString()}`;
+        const hudText = `OPTIONS (${venueTag}) (${liveOptionsChain.totalContractsCount} CONTRACTS) · CALL WALL: $${callWallUsd.toLocaleString()} · PUT WALL: $${putWallUsd.toLocaleString()} · ZERO γ: $${zeroGammaUsd.toLocaleString()} · MAX PAIN: $${maxPainUsd.toLocaleString()}`;
         ctx.font = 'bold 9px "JetBrains Mono", monospace';
         const hudW = ctx.measureText(hudText).width + 18;
         ctx.fillStyle = 'rgba(11, 15, 25, 0.92)';
@@ -2607,12 +2607,12 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             ctx.setLineDash([]);
 
             const title = isCallWall
-              ? `🧱 [DERIBIT LIVE] CALL WALL @ $${strikeUsd.toLocaleString()} (Call OI: ${lvl.call_oi.toLocaleString()} · Put OI: ${lvl.put_oi.toLocaleString()} · +$${gexMillions}M GEX)`
+              ? `CALL WALL [DERIBIT] @ $${strikeUsd.toLocaleString()} (Call OI: ${lvl.call_oi.toLocaleString()} · Put OI: ${lvl.put_oi.toLocaleString()} · +$${gexMillions}M GEX)`
               : isPutWall
-              ? `🛡 [DERIBIT LIVE] PUT WALL @ $${strikeUsd.toLocaleString()} (Put OI: ${lvl.put_oi.toLocaleString()} · Call OI: ${lvl.call_oi.toLocaleString()} · $${gexMillions}M GEX)`
+              ? `PUT WALL [DERIBIT] @ $${strikeUsd.toLocaleString()} (Put OI: ${lvl.put_oi.toLocaleString()} · Call OI: ${lvl.call_oi.toLocaleString()} · $${gexMillions}M GEX)`
               : isZeroGamma
-              ? `⚡ [DERIBIT LIVE] ZERO GAMMA FLIP @ $${strikeUsd.toLocaleString()} (OI: ${(lvl.call_oi + lvl.put_oi).toLocaleString()})`
-              : `🎯 [DERIBIT LIVE] MAX PAIN STRIKE @ $${strikeUsd.toLocaleString()} (OI: ${(lvl.call_oi + lvl.put_oi).toLocaleString()})`;
+              ? `ZERO GAMMA FLIP [DERIBIT] @ $${strikeUsd.toLocaleString()} (OI: ${(lvl.call_oi + lvl.put_oi).toLocaleString()})`
+              : `MAX PAIN [DERIBIT] @ $${strikeUsd.toLocaleString()} (OI: ${(lvl.call_oi + lvl.put_oi).toLocaleString()})`;
 
             ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
             const tw = ctx.measureText(title).width + 12;
@@ -2648,7 +2648,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       } else {
         // MT5 Forex / Metals have no public Options chain -> Show honest notice banner
         ctx.save();
-        const noticeText = `⚠️ MT5 FOREX/GOLD KHÔNG CÓ DỮ LIỆU OPTIONS CÔNG KHAI (CHỈ HỖ TRỢ DERIBIT LIVE CHO BTC & ETH)`;
+        const noticeText = `[NOTICE] MT5 FOREX/GOLD KHÔNG CÓ DỮ LIỆU OPTIONS CÔNG KHAI (CHỈ HỖ TRỢ DERIBIT LIVE CHO BTC & ETH)`;
         ctx.font = 'bold 9px "JetBrains Mono", monospace';
         const nw = ctx.measureText(noticeText).width + 18;
         ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
@@ -2934,7 +2934,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         const pct = p0.price_ticks > 0 ? ((diffTicks / p0.price_ticks) * 100).toFixed(2) : '0.00';
 
         drawBadgePill(
-          `📏 ${formatPriceDiffPips(diffTicks, instrumentId)} (${isUp ? '+' : ''}${pct}%) · ${barCount} nến · ΣV: ${rangeVol.toLocaleString()} · Δ: ${rangeDelta >= 0 ? '+' : ''}${rangeDelta.toLocaleString()}`,
+          `${formatPriceDiffPips(diffTicks, instrumentId)} (${isUp ? '+' : ''}${pct}%) · ${barCount} nến · ΣV: ${rangeVol.toLocaleString()} · Δ: ${rangeDelta >= 0 ? '+' : ''}${rangeDelta.toLocaleString()}`,
           cx,
           isUp ? top - 13 : bot + 13,
           '#0F172A',
@@ -3197,7 +3197,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       ctx.fillStyle = '#00E5FF';
       ctx.font = 'bold 9px "JetBrains Mono", monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(`🧲 ${snappedPoint.label}`, snappedPoint.x + 9, snappedPoint.y - 4);
+      ctx.fillText(`SNAP: ${snappedPoint.label}`, snappedPoint.x + 9, snappedPoint.y - 4);
       ctx.restore();
     }
 
@@ -3574,7 +3574,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         const bH = Math.max(12, hRatio * (volHistH - 14));
         const bY = volBottom - bH - 1;
 
-        ctx.fillStyle = isUp ? '#00FF33' : isDeepChart ? '#9D00FF' : '#EF4444';
+        ctx.fillStyle = isUp ? '#089981' : isDeepChart ? '#8B5CF6' : '#EF4444';
         ctx.fillRect(x + 2, bY, Math.max(barWidth - 4, 4), bH);
 
         if (barWidth >= 32) {
@@ -3592,10 +3592,10 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       // Sub-panel Title & Live Value Header (ATAS Style)
       const latestBarVol = analyzedBars[analyzedBars.length - 1];
       const latestVol = latestBarVol ? latestBarVol.stats.totalVolume : 0;
-      ctx.fillStyle = '#F8FAFC';
+      ctx.fillStyle = '#CBD5E1';
       ctx.font = 'bold 10px "Inter", sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(`📊 VOLUME  ·  Live: ${latestVol.toLocaleString()}`, 8, volTop + 13);
+      ctx.fillText(`VOLUME  ·  Live: ${latestVol.toLocaleString()}`, 8, volTop + 13);
 
       // Close Button "✕" on Right edge of Sub-panel Header
       ctx.fillStyle = '#1E2430';
@@ -3698,7 +3698,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       ctx.fillStyle = '#00E5FF';
       ctx.font = 'bold 10px "Inter", sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(`📈 CVD  ·  Net: ${latestCvd >= 0 ? '+' : ''}${latestCvd.toLocaleString()}`, 8, cvdTop + 13);
+      ctx.fillText(`CVD  ·  Net: ${latestCvd >= 0 ? '+' : ''}${latestCvd.toLocaleString()}`, 8, cvdTop + 13);
 
       // Close Button "✕" on Right edge of CVD Header
       ctx.fillStyle = '#1E2430';
@@ -4112,92 +4112,6 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     instrumentId,
   ]);
 
-  const [templateIdx, setTemplateIdx] = useState<number>(0);
-  const applyPresetTemplate = () => {
-    const next = (templateIdx + 1) % 4;
-    setTemplateIdx(next);
-    if (next === 0) {
-      // DeepChart Classic: OF-VP + OF-B/A + D-VP + COT/Δ
-      setShowOfVp(true);
-      setShowOfBa(true);
-      setShowOfDeltaP(false);
-      setShowVolumeProfile(true);
-      setShowValueAreaLines(true);
-      setShowCotGrid(true);
-      setShowVolHistogram(false);
-      setShowCvdPanel(false);
-      setShowBubbles(false);
-      setShowHeatmap(false);
-    } else if (next === 1) {
-      // DeepChart Volume Profile: OF-VP + OF-B/A + D-VP + Volume Histogram
-      setShowOfVp(true);
-      setShowOfBa(true);
-      setShowOfDeltaP(false);
-      setShowVolumeProfile(true);
-      setShowVolHistogram(true);
-      setShowCvdPanel(false);
-      setShowCotGrid(false);
-      setShowBubbles(false);
-      setShowHeatmap(false);
-    } else if (next === 2) {
-      // ATAS Delta Profile: OF-ΔP + OF-B/A + CVD
-      setShowOfVp(false);
-      setShowOfBa(true);
-      setShowOfDeltaP(true);
-      setShowVolumeProfile(true);
-      setShowCvdPanel(true);
-      setShowVolHistogram(true);
-      setShowCotGrid(false);
-      setShowBubbles(false);
-      setShowHeatmap(false);
-    } else {
-      // Clean Candlestick + Session Volume Profile + VWAP
-      setShowOfVp(false);
-      setShowOfBa(false);
-      setShowOfDeltaP(false);
-      setShowVolumeProfile(true);
-      setShowValueAreaLines(true);
-      setShowVwap(true);
-      setShowVolHistogram(true);
-      setShowCvdPanel(false);
-      setShowCotGrid(false);
-    }
-    handleFitContent();
-  };
-
-  const radioPill = (label: string, active: boolean, onClick: () => void, title: string) => (
-    <button
-      key={label}
-      onClick={onClick}
-      style={{
-        background: 'transparent',
-        color: active ? '#E2E8F0' : '#8E9BAE',
-        border: 'none',
-        padding: '2px 6px',
-        fontSize: '10.5px',
-        fontWeight: active ? 700 : 500,
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '4px',
-        whiteSpace: 'nowrap',
-      }}
-      title={title}
-    >
-      <span
-        style={{
-          width: '9px',
-          height: '9px',
-          borderRadius: '50%',
-          border: `1.5px solid ${active ? '#22C55E' : '#64748B'}`,
-          background: active ? '#22C55E' : 'transparent',
-          display: 'inline-block',
-        }}
-      />
-      <span>{label}</span>
-    </button>
-  );
-
   const pipStep = instMeta.pipTicks || instMeta.tickSize * 2;
   const bestBidTicks = orderBook?.bids?.[0]?.price_ticks || (refPrice - instMeta.tickSize);
   const bestAskTicks = orderBook?.asks?.[0]?.price_ticks || (refPrice + instMeta.tickSize);
@@ -4233,173 +4147,6 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         onContextMenu={handleContextMenu}
       >
         <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
-
-        {/* =====================================================================
-            ON-CHART ONE-CLICK TRADING WIDGET (Top-Left, MT5 Alt+T & TradingView Standard)
-            ===================================================================== */}
-        <div
-          onMouseDown={(e) => e.stopPropagation()}
-          style={{
-            position: 'absolute',
-            top: '24px',
-            left: '10px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '3px',
-            zIndex: 16,
-            userSelect: 'none',
-            fontFamily: "'Inter', sans-serif",
-          }}
-        >
-          <button
-            onClick={() => setShowOneClickBar((p) => !p)}
-            style={{
-              background: '#1A1E29',
-              color: '#94A3B8',
-              border: '1px solid #2E3444',
-              borderRadius: '4px',
-              padding: '3px 5px',
-              fontSize: '9.5px',
-              fontWeight: 800,
-              cursor: 'pointer',
-            }}
-            title="Ẩn/Hiện Thanh Vào Lệnh Nhanh 1-Click (Giống MT5 Alt+T & TradingView)"
-          >
-            {showOneClickBar ? '▾' : '▸ 1-Click'}
-          </button>
-
-          {showOneClickBar && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                background: 'rgba(19, 23, 34, 0.92)',
-                border: '1px solid #2A3040',
-                borderRadius: '5px',
-                padding: '2px',
-                gap: '2px',
-                boxShadow: '0 4px 14px rgba(0,0,0,0.55)',
-              }}
-            >
-              {/* SELL MARKET BUTTON */}
-              <button
-                onClick={() => {
-                  mt5BridgeService.placeOrder({
-                    instrumentId,
-                    side: 'Sell',
-                    orderType: 'MARKET',
-                    lots: oneClickLots,
-                    entryPriceTicks: bestBidTicks,
-                    slTicks: bestBidTicks + 20 * pipStep,
-                    tpTicks: bestBidTicks - 40 * pipStep,
-                    comment: 'Chart-1Click-Sell',
-                  });
-                }}
-                style={{
-                  background: '#F23645',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '3px',
-                  padding: '3px 8px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                }}
-                title="One-Click SELL Market (Kèm SL 20p / TP 40p)"
-              >
-                <span style={{ fontSize: '9px', fontWeight: 800, opacity: 0.9 }}>SELL</span>
-                <span style={{ fontSize: '10.5px', fontWeight: 900, fontFamily: '"JetBrains Mono", monospace' }}>
-                  {formatInstrumentPrice(bestBidTicks, instrumentId)}
-                </span>
-              </button>
-
-              {/* LOT STEPPER */}
-              <div style={{ display: 'flex', alignItems: 'center', background: '#11141C', borderRadius: '3px', padding: '0 2px' }}>
-                <button
-                  onClick={() => setOneClickLots((l) => Math.max(0.01, Number((l - 0.1).toFixed(2))))}
-                  style={{
-                    background: 'transparent',
-                    color: '#94A3B8',
-                    border: 'none',
-                    padding: '2px 4px',
-                    fontSize: '10px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  −
-                </button>
-                <input
-                  type="number"
-                  step={0.01}
-                  min={0.01}
-                  max={100}
-                  value={oneClickLots}
-                  onChange={(e) => setOneClickLots(Math.max(0.01, parseFloat(e.target.value) || 0.01))}
-                  style={{
-                    width: '42px',
-                    background: 'transparent',
-                    border: 'none',
-                    color: '#F8FAFC',
-                    textAlign: 'center',
-                    fontSize: '10.5px',
-                    fontWeight: 800,
-                    fontFamily: 'monospace',
-                    outline: 'none',
-                  }}
-                />
-                <button
-                  onClick={() => setOneClickLots((l) => Number((l + 0.1).toFixed(2)))}
-                  style={{
-                    background: 'transparent',
-                    color: '#94A3B8',
-                    border: 'none',
-                    padding: '2px 4px',
-                    fontSize: '10px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                  }}
-                >
-                  +
-                </button>
-              </div>
-
-              {/* BUY MARKET BUTTON */}
-              <button
-                onClick={() => {
-                  mt5BridgeService.placeOrder({
-                    instrumentId,
-                    side: 'Buy',
-                    orderType: 'MARKET',
-                    lots: oneClickLots,
-                    entryPriceTicks: bestAskTicks,
-                    slTicks: bestAskTicks - 20 * pipStep,
-                    tpTicks: bestAskTicks + 40 * pipStep,
-                    comment: 'Chart-1Click-Buy',
-                  });
-                }}
-                style={{
-                  background: '#089981',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '3px',
-                  padding: '3px 8px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                }}
-                title="One-Click BUY Market (Kèm SL 20p / TP 40p)"
-              >
-                <span style={{ fontSize: '9px', fontWeight: 800, opacity: 0.9 }}>BUY</span>
-                <span style={{ fontSize: '10.5px', fontWeight: 900, fontFamily: '"JetBrains Mono", monospace' }}>
-                  {formatInstrumentPrice(bestAskTicks, instrumentId)}
-                </span>
-              </button>
-            </div>
-          )}
-        </div>
 
         {/* =====================================================================
             TRADINGVIEW RIGHT-CLICK & "[+]" AXIS QUICK ORDER / DRAWING MENU
@@ -4480,7 +4227,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                     }}
                     style={{ ...menuBtnStyle, color: '#FCA5A5' }}
                   >
-                    <span>🔴 Đặt Sell Limit {oneClickLots}L</span>
+                    <span>Sell Limit {oneClickLots}L</span>
                     <span style={{ fontFamily: 'monospace', fontSize: '9.5px' }}>@{pStr}</span>
                   </button>
                   <button
@@ -4499,7 +4246,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                     }}
                     style={{ ...menuBtnStyle, color: '#6EE7B7' }}
                   >
-                    <span>🟢 Đặt Buy Stop {oneClickLots}L</span>
+                    <span>Buy Stop {oneClickLots}L</span>
                     <span style={{ fontFamily: 'monospace', fontSize: '9.5px' }}>@{pStr}</span>
                   </button>
                 </>
@@ -4521,7 +4268,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                     }}
                     style={{ ...menuBtnStyle, color: '#6EE7B7' }}
                   >
-                    <span>🟢 Đặt Buy Limit {oneClickLots}L</span>
+                    <span>Buy Limit {oneClickLots}L</span>
                     <span style={{ fontFamily: 'monospace', fontSize: '9.5px' }}>@{pStr}</span>
                   </button>
                   <button
@@ -4540,7 +4287,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                     }}
                     style={{ ...menuBtnStyle, color: '#FCA5A5' }}
                   >
-                    <span>🔴 Đặt Sell Stop {oneClickLots}L</span>
+                    <span>Sell Stop {oneClickLots}L</span>
                     <span style={{ fontFamily: 'monospace', fontSize: '9.5px' }}>@{pStr}</span>
                   </button>
                 </>
@@ -4562,7 +4309,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                 }}
                 style={menuBtnStyle}
               >
-                <span>📈 Đặt Khung Mua Long R:R (B$)</span>
+                <span>Khung Mua Long R:R</span>
                 <span style={{ color: '#00E676', fontSize: '9.5px' }}>1:2 R</span>
               </button>
 
@@ -4580,7 +4327,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                 }}
                 style={menuBtnStyle}
               >
-                <span>📉 Đặt Khung Bán Short R:R (S$)</span>
+                <span>Khung Bán Short R:R</span>
                 <span style={{ color: '#FF4081', fontSize: '9.5px' }}>1:2 R</span>
               </button>
 
@@ -4650,15 +4397,15 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                 }}
               >
                 {sel.type === 'long_position'
-                  ? '📈 LONG R:R'
+                  ? 'LONG R:R'
                   : sel.type === 'short_position'
-                  ? '📉 SHORT R:R'
+                  ? 'SHORT R:R'
                   : sel.type === 'imbalance_box'
-                  ? '▭ ORDER BLOCK'
+                  ? 'ORDER BLOCK'
                   : sel.type === 'horizontal_line'
-                  ? '━ HORIZ LINE'
+                  ? 'HORIZ LINE'
                   : sel.type === 'price_range'
-                  ? '📏 RULER'
+                  ? 'RULER'
                   : sel.type.toUpperCase()}
               </span>
 
@@ -4844,7 +4591,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                     }}
                     title="Khớp lệnh Thị trường (Market) ngay lập tức kèm SL & TP của khung vẽ này"
                   >
-                    ⚡ Vào Market ({lots}L)
+                    Vào Market ({lots}L)
                   </button>
 
                   {/* 2. Place Pending LIMIT / STOP Order at the Box's Exact Entry Line! */}
@@ -4883,7 +4630,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                     }}
                     title="Đặt Lệnh Chờ (Limit / Stop) tại đúng vạch Entry + SL + TP của khung vẽ này"
                   >
-                    ⏳ Đặt {isLong ? (sel.points[0].price_ticks <= refPrice ? 'Buy Limit' : 'Buy Stop') : (sel.points[0].price_ticks >= refPrice ? 'Sell Limit' : 'Sell Stop')} @ Entry
+                    Đặt {isLong ? (sel.points[0].price_ticks <= refPrice ? 'Buy Limit' : 'Buy Stop') : (sel.points[0].price_ticks >= refPrice ? 'Sell Limit' : 'Sell Stop')} @ Entry
                   </button>
                 </>
               )}
@@ -4903,7 +4650,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                 }}
                 title="Khóa / Mở khóa vị trí hình vẽ (Không sợ kéo nhầm)"
               >
-                {sel.isLocked ? '🔒 Đã khóa' : '🔓 Khóa'}
+                {sel.isLocked ? 'Đã khóa' : 'Khóa'}
               </button>
 
               {/* Clone Drawing Button */}
@@ -4936,7 +4683,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                 }}
                 title="Nhân bản hình vẽ này (Clone)"
               >
-                ❐ Nhân bản
+                Nhân bản
               </button>
 
               {/* Delete Drawing Button */}
@@ -4957,7 +4704,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                 }}
                 title="Xóa hình vẽ đang chọn (Phím Delete)"
               >
-                🗑 Xóa
+                Xóa
               </button>
             </div>
           );
@@ -4986,201 +4733,10 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
               zIndex: 10,
             }}
           >
-            ❯| Live Candle
+            Live Candle
           </button>
         )}
       </div>
-
-      {/* =====================================================================
-          AUTHENTIC DEEPCHART BOTTOM INDICATORS TOOLBAR DOCK
-          100% Match to media_1794650950575_011ab3f4.jpg & media_1794650941668_c8f4497c.jpg
-          ===================================================================== */}
-      {!hideBottomToolbar && (
-        <div
-          style={{
-            height: '28px',
-            minHeight: '28px',
-            background: '#16181D',
-            borderTop: '1px solid #262932',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '0 10px',
-            gap: '8px',
-            userSelect: 'none',
-            zIndex: 15,
-          }}
-        >
-          {/* Left: Templates Button + DeepChart Indicator Radio/Checkbox Pills */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', overflowX: 'auto' }}>
-            <button
-              onClick={applyPresetTemplate}
-              style={{
-                background: '#4ADE80',
-                color: '#0B0D12',
-                border: 'none',
-                borderRadius: '3px',
-                padding: '2px 6px',
-                fontSize: '10px',
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginRight: '2px',
-              }}
-              title="Chuyển đổi nhanh bộ mẫu hiển thị chuẩn DeepCharts / ATAS & Auto-Fit"
-            >
-              <span>▤</span>
-              <span>Templates</span>
-            </button>
-
-            {/* ATAS Indicators Manager Dialog Button (Ctrl + I) */}
-            <button
-              onClick={() => setIsIndicatorsModalOpen(true)}
-              style={{
-                background: '#1E293B',
-                color: '#38BDF8',
-                border: '1px solid #38BDF8',
-                borderRadius: '3px',
-                padding: '2px 7px',
-                fontSize: '10px',
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginRight: '4px',
-              }}
-              title="Mở Thư Viện Quản Lý Chỉ Báo Định Lượng & Order Flow (Ctrl + I)"
-            >
-              <span>📈</span>
-              <span>Chỉ Báo (Ctrl+I)</span>
-            </button>
-
-            {radioPill(
-              'OF-VP',
-              showOfVp,
-              () => {
-                const next = !showOfVp;
-                setShowOfVp(next);
-                if (next) setShowOfDeltaP(false);
-              },
-              'Order Flow Volume Profile Histogram per Bar (Tím/Xanh 2 nửa)'
-            )}
-            {radioPill('OF-B/A', showOfBa, () => setShowOfBa(!showOfBa), 'Order Flow Bid × Ask Numbers & Yellow POC Box')}
-            {radioPill(
-              'OF-ΔP',
-              showOfDeltaP,
-              () => {
-                const next = !showOfDeltaP;
-                setShowOfDeltaP(next);
-                if (next) setShowOfVp(false);
-              },
-              'Order Flow Bi-Directional Delta Profile'
-            )}
-            {radioPill('D-VP', showVolumeProfile, () => setShowVolumeProfile(!showVolumeProfile), 'Session Volume Profile (Right-Anchored Royal Blue)')}
-            {radioPill('D-DP', showDeltaProfileSession, () => setShowDeltaProfileSession(!showDeltaProfileSession), 'Session Delta Profile')}
-            {radioPill('D-VL', showValueAreaLines, () => setShowValueAreaLines(!showValueAreaLines), 'Session Value Area Lines (dPOC, dVAH, dVAL)')}
-            {radioPill('VWAP', showVwap, () => setShowVwap(!showVwap), 'Developing Session VWAP Curve')}
-            {radioPill('NPOC', showNakedPoc, () => setShowNakedPoc(!showNakedPoc), 'Naked Unmitigated POC Rays')}
-            {radioPill('HTF-PD', showPriorDayLevels, () => setShowPriorDayLevels(!showPriorDayLevels), 'Mốc Khung Lớn Ngày Hôm Qua (PDH, PDL, PDPOC, PDVAH, PDVAL)')}
-            {radioPill('STK-IMB', showStackedImbalances, () => setShowStackedImbalances(!showStackedImbalances), 'Vùng Mất Cân Bằng Xếp Chồng Kéo Dài (ATAS Stacked Imbalance Zones)')}
-            {radioPill(
-              'VOL',
-              showVolHistogram,
-              () => setShowVolHistogram(!showVolHistogram),
-              'Cửa sổ phụ Volume Histogram dưới chân biểu đồ (ATAS Pane)'
-            )}
-            {radioPill(
-              'CVD',
-              showCvdPanel,
-              () => setShowCvdPanel(!showCvdPanel),
-              'Cửa sổ phụ Cumulative Volume Delta (CVD) dưới chân biểu đồ'
-            )}
-            {radioPill(
-              'COT/Δ',
-              showCotGrid,
-              () => setShowCotGrid(!showCotGrid),
-              'Cửa sổ phụ Lưới nhiệt 4 hàng COT Bar / Δ Qty. / Δ % / Δ V'
-            )}
-            {radioPill('HEAD Δ/V', showBarHeadStats, () => setShowBarHeadStats(!showBarHeadStats), 'Bar Delta & Volume Summary Above High Wick')}
-            {radioPill('SL/LIQ', showSlClusters, () => setShowSlClusters(!showSlClusters), 'Bản đồ Vùng Tụ Cắt Lỗ (Stop-Loss Clusters) & Thanh Lý 50x-100x (BSL/SSL Pools)')}
-            {radioPill('LIMIT/ABS', showAbsorption, () => setShowAbsorption(!showAbsorption), 'Tường Lệnh Chờ Limit Cá Mập (L2 Limit Walls), Hấp Thụ (Absorption), Mất Cân Bằng Chồng Tầng & Đấu Giá Chưa Hoàn Tất')}
-            {radioPill('STRIKES', showOptions, () => setShowOptions(!showOptions), 'Các Mốc Strike Quyền Chọn & Gamma Exposure (Call Wall, Put Wall, Zero Gamma Flip, Max Pain)')}
-            {radioPill('BUBBLES', showBubbles, () => setShowBubbles(!showBubbles), 'Large Trade Volume Bubbles')}
-            {radioPill('HEATMAP', showHeatmap, () => setShowHeatmap(!showHeatmap), 'Resting L2 Liquidity Heatmap')}
-
-            {/* Color Theme Quick Toggle */}
-            <button
-              onClick={() => setColorTheme((p) => (p === 'deepchart' ? 'atas' : 'deepchart'))}
-              style={{
-                background: '#222631',
-                color: colorTheme === 'deepchart' ? '#C084FC' : '#00E676',
-                border: '1px solid #323642',
-                borderRadius: '3px',
-                padding: '1px 6px',
-                fontSize: '9.5px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                marginLeft: '4px',
-              }}
-              title="Đổi bảng màu: DeepChart (Xanh/Tím) ⇄ ATAS (Xanh/Đỏ)"
-            >
-              {colorTheme === 'deepchart' ? 'G/Purple' : 'G/Red'}
-            </button>
-          </div>
-
-          {/* Right: Chart DOM Trading Radio + Trading Panel Toggle Switch */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-            {radioPill(
-              'DOM Trading',
-              showChartDom,
-              () => setShowChartDom(!showChartDom),
-              'Hiển thị cột khớp lệnh nhanh DOM ngay cạnh trục giá (Chart DOM Trading)'
-            )}
-
-            <div
-              onClick={() => onToggleTradingPanel?.()}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                cursor: 'pointer',
-                fontSize: '10.5px',
-                color: isTradingPanelOpen ? '#E2E8F0' : '#8E9BAE',
-                fontWeight: 600,
-              }}
-              title="Mở / Đóng Bảng Đặt Lệnh Bên Phải (Trading Panel)"
-            >
-              <span>Trading panel</span>
-              <div
-                style={{
-                  width: '32px',
-                  height: '16px',
-                  borderRadius: '10px',
-                  background: isTradingPanelOpen ? '#10B981' : '#334155',
-                  position: 'relative',
-                  transition: 'background 0.15s',
-                }}
-              >
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: '2px',
-                    left: isTradingPanelOpen ? '17px' : '2px',
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '50%',
-                    background: '#FFFFFF',
-                    transition: 'left 0.15s',
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Institutional ATAS Indicators Manager Modal */}
       <IndicatorsModal

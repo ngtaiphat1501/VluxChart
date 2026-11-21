@@ -300,7 +300,7 @@ export function App() {
         id: `ice-${ice.detected_at_us}-${ice.price_ticks}`,
         timestamp: new Date(ice.detected_at_us / 1000),
         type: 'Iceberg',
-        title: `🧊 ICEBERG DETECTED (${ice.side.toUpperCase()})`,
+        title: `ICEBERG DETECTED (${ice.side.toUpperCase()})`,
         priceTicks: ice.price_ticks,
         details: `Replenished hidden liquidity: ${ice.hidden_volume_units.toLocaleString()} units hidden (Displayed: ${ice.peak_displayed_units.toLocaleString()}, ${ice.refill_count}x refills)`,
       });
@@ -314,7 +314,7 @@ export function App() {
             id: `whale-${b.bar_start_us}-${lvl.price_ticks}`,
             timestamp: new Date(b.bar_start_us / 1000),
             type: 'Whale',
-            title: `🐋 WHALE ACCUMULATION (${lvl.total_units.toLocaleString()} units)`,
+            title: `WHALE ACCUMULATION (${lvl.total_units.toLocaleString()} units)`,
             priceTicks: lvl.price_ticks,
             details: `Institutional volume clustered at price ${lvl.price_ticks}: Buy=${lvl.buy_units}, Sell=${lvl.sell_units}`,
           });
@@ -1151,7 +1151,7 @@ export function App() {
       {/* Floating Draggable DOM Ladder Panel (when popped out) */}
       {isDomFloating && (
         <FloatingPanel
-          title="🪜 ORDER BOOK DOM LADDER"
+          title="ORDER BOOK DOM LADDER"
           initialX={window.innerWidth - 300}
           initialY={85}
           initialWidth={280}
@@ -1172,7 +1172,7 @@ export function App() {
       {/* Floating Draggable Time & Sales Tape Panel (when popped out) */}
       {isTapeFloating && (
         <FloatingPanel
-          title="⚡ TIME & SALES (LIVE TAPE)"
+          title="TIME & SALES (LIVE TAPE)"
           initialX={window.innerWidth - 600}
           initialY={85}
           initialWidth={280}
@@ -1212,7 +1212,7 @@ export function App() {
           userSelect: 'none',
         }}
       >
-        {/* Left: /// DEEPCHART Brand Emblem & Quick Menus */}
+        {/* Left: VLUXCHART Brand Emblem & Active Workspace */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <div
             style={{
@@ -1222,57 +1222,12 @@ export function App() {
               color: '#FFFFFF',
               fontWeight: 900,
               fontStyle: 'italic',
-              fontSize: '12.5px',
+              fontSize: '12px',
               letterSpacing: '0.6px',
             }}
           >
             <span style={{ color: '#00E676' }}>///</span>
-            <span>DEEPCHART</span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px', color: '#CBD5E1' }}>
-            <span
-              onClick={() => handleLayoutPresetChange('order_flow_pro')}
-              style={{ cursor: 'pointer' }}
-              title="Reset Workspace"
-            >
-              New
-            </span>
-            <span
-              onClick={() => handleLayoutPresetChange('options_confluence')}
-              style={{ cursor: 'pointer' }}
-              title="Switch to Options & GEX Workspace"
-            >
-              Options
-            </span>
-            <span
-              onClick={() => setRightDockTab((p) => (p === 'trading' ? null : 'trading'))}
-              style={{ cursor: 'pointer' }}
-              title="Toggle Execution Trading Panel"
-            >
-              Trading
-            </span>
-            <span
-              onClick={() => setIsZoneInspectorOpen(true)}
-              style={{ cursor: 'pointer' }}
-              title="Open Institutional Zone Inspector"
-            >
-              Zones
-            </span>
-            <span
-              onClick={() => setIsBacktestOpen(true)}
-              style={{ cursor: 'pointer' }}
-              title="Open Order Flow Strategy Backtester"
-            >
-              Backtest
-            </span>
-            <span
-              onClick={() => setIsSettingsOpen(true)}
-              style={{ cursor: 'pointer' }}
-              title="Open Settings"
-            >
-              Settings
-            </span>
+            <span>VLUXCHART</span>
           </div>
 
           {/* Active Workspace Profile Pill */}
@@ -1281,13 +1236,13 @@ export function App() {
               background: '#1E222D',
               border: '1px solid #2E3444',
               borderRadius: '4px',
-              padding: '2px 10px',
+              padding: '2px 8px',
               fontSize: '10.5px',
               color: '#E2E8F0',
               fontWeight: 600,
             }}
           >
-            001-DEEPCHART-PRO ▾
+            001-PRO ▾
           </div>
 
           {/* Feed Connection Pill */}

@@ -155,7 +155,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             }}
             title="Chế độ Nến Nhật tiêu chuẩn (TradingView Candlestick)"
           >
-            🕯 Candle
+            Candle
           </button>
           <button
             onClick={() => onChartViewModeChange?.('footprint')}
@@ -171,7 +171,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             }}
             title="Chế độ Order Flow Footprint & Volume Profile (ATAS / DeepChart)"
           >
-            📊 Footprint
+            Footprint
           </button>
         </div>
 
@@ -183,7 +183,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             border: '1px solid #323A4D',
             borderRadius: '4px',
             color: '#38BDF8',
-            padding: '2px 7px',
+            padding: '2px 8px',
             fontSize: '11px',
             fontWeight: 700,
             cursor: 'pointer',
@@ -194,8 +194,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           }}
           title="Mở Thư Viện Quản Lý Chỉ Báo Định Lượng & Order Flow (Ctrl + I)"
         >
-          <span>📈</span>
-          <span>Chỉ báo</span>
+          <span>Chỉ báo (Ctrl+I)</span>
         </button>
 
         {/* 3. Zone & Volume Profile Inspector Icon */}
@@ -225,19 +224,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           $
         </button>
 
-        {/* 6. Camera / CSV Snapshot Export Icon */}
+        {/* 6. CSV Snapshot Export Button */}
         <button
           onClick={onExportCSV}
-          style={iconBtnStyle}
+          style={{ ...iconBtnStyle, fontSize: '11px', fontWeight: 700 }}
           title="Xuất dữ liệu Nến & Order Flow ra CSV (Snapshot Export)"
         >
-          📷
+          CSV
         </button>
       </div>
 
       {/* =====================================================================
-          CENTER GROUP: 3 Signature DeepCharts Dropdown Pills
-          [ Instrument ▾ ]  [ 10D - BT (Tick Aggregation) ▾ ]  [ 5 Minute ▾ ]
+          CENTER GROUP: Signature DeepCharts / ATAS Toolbar Group
+          [ Instrument ▾ ]  [ 10D - BT ▾ ]  [ Timeframe Pills ]
           ===================================================================== */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
         {/* Pill 1: Instrument Selector (MT5 Forex/Gold/Indices + Crypto Perpetuals) */}
@@ -247,7 +246,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           style={centerSelectStyle}
           title="Chọn Cặp Giao Dịch: MT5 Forex / Gold / Indices hoặc Crypto Perpetual"
         >
-          <optgroup label="🌍 MT5 FOREX, METALS & INDICES (Exness / FTMO / IC Markets)">
+          <optgroup label="MT5 FOREX, METALS & INDICES (Exness / FTMO / IC Markets)">
             <option value="MT5:FOREX:EURUSD">EURUSD · Euro / US Dollar (MT5 Forex)</option>
             <option value="MT5:FOREX:GBPUSD">GBPUSD · British Pound / USD (MT5 Forex)</option>
             <option value="MT5:FOREX:USDJPY">USDJPY · US Dollar / Yen (MT5 Forex)</option>
@@ -260,7 +259,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <option value="MT5:CRYPTO:BTCUSD">BTCUSD · Bitcoin / USD (MT5 Live 24/7)</option>
             <option value="MT5:CRYPTO:ETHUSD">ETHUSD · Ethereum / USD (MT5 Live 24/7)</option>
           </optgroup>
-          <optgroup label="⚡ CRYPTO PERPETUAL (Bybit / Binance)">
+          <optgroup label="CRYPTO PERPETUAL (Bybit / Binance)">
             <option value="BYBIT:LINEAR_PERP:BTCUSDT:PERP">BTCUSDT-PERP (Bybit)</option>
             <option value="BYBIT:LINEAR_PERP:ETHUSDT:PERP">ETHUSDT-PERP (Bybit)</option>
             <option value="BYBIT:LINEAR_PERP:XAUUSDT:PERP">XAUUSDT-GOLD (Bybit)</option>
@@ -316,21 +315,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <option value="10">10D - 10T</option>
         </select>
 
-        {/* Pill 3: Timeframe Selector (1 Minute, 5 Minute, 15 Minute...) */}
-        <select
-          value={snapshot.timeframe_us}
-          onChange={(e) => onTimeframeChange?.(parseInt(e.target.value, 10))}
-          style={centerSelectStyle}
-          title="Khung thời gian (Timeframe Interval)"
-        >
-          {timeframes.map((tf) => (
-            <option key={tf.value} value={tf.value}>
-              {tf.label}
-            </option>
-          ))}
-        </select>
-
-        {/* Quick Timeframe Pills for 1-click switching */}
+        {/* Quick Timeframe Pills for 1-click switching (Standard ATAS / TradingView Clean Row) */}
         <div style={{ display: 'flex', background: '#1E2028', border: '1px solid #2D313B', borderRadius: '4px', padding: '1px' }}>
           {timeframes.map((tf) => {
             const isSelected = snapshot.timeframe_us === tf.value;

@@ -357,7 +357,6 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '18px' }}>📈</span>
             <div>
               <div style={{ fontSize: '15px', fontWeight: 800, color: '#F8FAFC', letterSpacing: '0.3px' }}>
                 THƯ VIỆN CHỈ BÁO ĐỊNH LƯỢNG & ORDER FLOW (INDICATORS)
@@ -420,10 +419,10 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({
             MẪU CẤU HÌNH NHANH:
           </span>
           {[
-            { id: 'atas_standard', label: '🎯 ATAS Classic (Mặc Định)', tip: 'Footprint B/A + Session 24h + Volume + CVD' },
-            { id: 'scalper_flow', label: '⚡ Order Flow Scalper', tip: 'Delta Profile + Stacked Imbalances + Absorption + DOM' },
-            { id: 'macro_institutional', label: '🏛️ Macro Institutional', tip: 'HTF-PD + 24h Profile + VWAP + COT Matrix + Liquidity' },
-            { id: 'clean_price', label: '🧹 Clean Price Action', tip: 'Tắt toàn bộ chỉ báo phụ, chỉ giữ nến & Profile' },
+            { id: 'atas_standard', label: 'ATAS Classic (Mặc Định)', tip: 'Footprint B/A + Session 24h + Volume + CVD' },
+            { id: 'scalper_flow', label: 'Order Flow Scalper', tip: 'Delta Profile + Stacked Imbalances + Absorption + DOM' },
+            { id: 'macro_institutional', label: 'Macro Institutional', tip: 'HTF-PD + 24h Profile + VWAP + COT Matrix + Liquidity' },
+            { id: 'clean_price', label: 'Clean Price Action', tip: 'Tắt toàn bộ chỉ báo phụ, chỉ giữ nến & Profile' },
           ].map((preset) => (
             <button
               key={preset.id}
@@ -461,10 +460,10 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({
           <div style={{ display: 'flex', gap: '4px' }}>
             {[
               { id: 'all', label: `Tất cả (${INDICATOR_CATALOG.length})` },
-              { id: 'sub_panels', label: '📊 Cửa Sổ Phụ' },
-              { id: 'clusters', label: '🔥 Cụm Footprint' },
-              { id: 'structure', label: '🏛️ Cấu Trúc & Khung Lớn' },
-              { id: 'liquidity', label: '🧊 Thanh Khoản & Options' },
+              { id: 'sub_panels', label: 'Cửa Sổ Phụ (Sub-Panels)' },
+              { id: 'clusters', label: 'Cụm Footprint' },
+              { id: 'structure', label: 'Cấu Trúc & Khung Lớn' },
+              { id: 'liquidity', label: 'Thanh Khoản & Options' },
             ].map((tab) => {
               const active = activeTab === tab.id;
               return (
@@ -500,7 +499,7 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({
                 background: '#171B24',
                 border: '1px solid #2B3346',
                 borderRadius: '4px',
-                padding: '5px 10px 5px 28px',
+                padding: '5px 10px 5px 24px',
                 color: '#F8FAFC',
                 fontSize: '11.5px',
                 outline: 'none',
@@ -513,10 +512,10 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({
                 top: '50%',
                 transform: 'translateY(-50%)',
                 color: '#64748B',
-                fontSize: '12px',
+                fontSize: '11px',
               }}
             >
-              🔍
+              ⌕
             </span>
           </div>
         </div>
@@ -587,7 +586,7 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({
                         borderRadius: '3px',
                       }}
                     >
-                      📍 {item.zone}
+                      {item.zone}
                     </span>
                   </div>
 
