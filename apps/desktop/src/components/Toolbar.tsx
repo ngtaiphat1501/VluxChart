@@ -112,10 +112,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   return (
     <header
       style={{
-        height: '36px',
-        minHeight: '36px',
-        background: '#16181D',
-        borderBottom: '1px solid #262932',
+        height: '38px',
+        minHeight: '38px',
+        background: '#12141B',
+        borderBottom: '1px solid #232733',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -123,200 +123,128 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         gap: '8px',
         userSelect: 'none',
         zIndex: 20,
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
       }}
     >
       {/* =====================================================================
-          LEFT GROUP: DeepCharts 6 Action Icons (Menu, Candle/FP, Indicators, Settings, $, Camera)
-          Matches media_1794650950575_011ab3f4.jpg & media_1794650978772_5f668108.png
+          GROUP 1 (LEFT): ATAS Instrument, Quick MT5, Candles/Clusters, Timeframe
           ===================================================================== */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-        {/* 1. Workspace Menu / Reset Icon */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
+        {/* Workspace Menu */}
         <button
           onClick={() => onLayoutPresetChange?.('order_flow_pro')}
           style={{ ...iconBtnStyle, color: '#CBD5E1' }}
-          title="DeepChart Workspace Menu (Reset to Default Order Flow Layout)"
+          title="Menu Không Gian Làm Việc (Reset Layout)"
         >
           ☰
         </button>
 
-        {/* 2. Chart Bar Type Switcher Icon (Candlestick / Footprint / Hybrid) */}
-        <div style={{ display: 'flex', background: '#1F2229', border: '1px solid #2D313B', borderRadius: '4px', padding: '1px' }}>
-          <button
-            onClick={() => onChartViewModeChange?.('candlestick')}
-            style={{
-              background: chartViewMode === 'candlestick' ? '#2D323E' : 'transparent',
-              color: chartViewMode === 'candlestick' ? '#00E676' : '#8E9BAE',
-              border: 'none',
-              borderRadius: '3px',
-              padding: '2px 6px',
-              fontSize: '10.5px',
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-            title="Chế độ Nến Nhật tiêu chuẩn (TradingView Candlestick)"
-          >
-            Candle
-          </button>
-          <button
-            onClick={() => onChartViewModeChange?.('footprint')}
-            style={{
-              background: chartViewMode === 'footprint' || chartViewMode === 'hybrid' ? '#2D323E' : 'transparent',
-              color: chartViewMode === 'footprint' || chartViewMode === 'hybrid' ? '#00E676' : '#8E9BAE',
-              border: 'none',
-              borderRadius: '3px',
-              padding: '2px 6px',
-              fontSize: '10.5px',
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-            title="Chế độ Order Flow Footprint & Volume Profile (ATAS / DeepChart)"
-          >
-            Footprint
-          </button>
-        </div>
-
-        {/* 2B. Indicators Manager Button (ATAS Ctrl+I Standard) */}
-        <button
-          onClick={onOpenIndicators}
-          style={{
-            background: '#1F2229',
-            border: '1px solid #323A4D',
-            borderRadius: '4px',
-            color: '#38BDF8',
-            padding: '2px 8px',
-            fontSize: '11px',
-            fontWeight: 700,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-            height: '26px',
-          }}
-          title="Mở Thư Viện Quản Lý Chỉ Báo Định Lượng & Order Flow (Ctrl + I)"
-        >
-          <span>Chỉ báo (Ctrl+I)</span>
-        </button>
-
-        {/* 3. Zone & Volume Profile Inspector Icon */}
-        <button
-          onClick={onOpenZoneInspector}
-          style={iconBtnStyle}
-          title="Mở Zone Inspector & Phân tích Vùng Thanh khoản (Market Intelligence)"
-        >
-          llı
-        </button>
-
-        {/* 4. Settings Gear Icon */}
-        <button
-          onClick={onOpenSettings}
-          style={iconBtnStyle}
-          title="Cấu hình Biểu đồ & Giao diện (Chart & Footprint Settings)"
-        >
-          ⚙
-        </button>
-
-        {/* 5. $ Strategy Backtester & Execution Icon */}
-        <button
-          onClick={onOpenBacktest}
-          style={{ ...iconBtnStyle, color: '#00E676', fontWeight: 700 }}
-          title="Chiến lược Order Flow & Backtester ($)"
-        >
-          $
-        </button>
-
-        {/* 6. CSV Snapshot Export Button */}
-        <button
-          onClick={onExportCSV}
-          style={{ ...iconBtnStyle, fontSize: '11px', fontWeight: 700 }}
-          title="Xuất dữ liệu Nến & Order Flow ra CSV (Snapshot Export)"
-        >
-          CSV
-        </button>
-      </div>
-
-      {/* =====================================================================
-          CENTER GROUP: Signature DeepCharts / ATAS Toolbar Group
-          [ Instrument ▾ ]  [ 10D - BT ▾ ]  [ Timeframe Pills ]
-          ===================================================================== */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-        {/* Pill 1: Instrument Selector (MT5 Forex/Gold/Indices + Crypto Perpetuals) */}
+        {/* Instrument Selector */}
         <select
           value={snapshot.instrument_id}
           onChange={(e) => onInstrumentChange(e.target.value)}
-          style={centerSelectStyle}
+          style={{
+            ...centerSelectStyle,
+            background: '#1B1F2A',
+            border: '1px solid #2C3345',
+            fontSize: '11px',
+            maxWidth: '170px',
+          }}
           title="Chọn Cặp Giao Dịch: MT5 Forex / Gold / Indices hoặc Crypto Perpetual"
         >
-          <optgroup label="MT5 FOREX, METALS & INDICES (Exness / FTMO / IC Markets)">
-            <option value="MT5:FOREX:EURUSD">EURUSD · Euro / US Dollar (MT5 Forex)</option>
-            <option value="MT5:FOREX:GBPUSD">GBPUSD · British Pound / USD (MT5 Forex)</option>
-            <option value="MT5:FOREX:USDJPY">USDJPY · US Dollar / Yen (MT5 Forex)</option>
-            <option value="MT5:FOREX:AUDUSD">AUDUSD · Australian Dollar / USD (MT5 Forex)</option>
-            <option value="MT5:FOREX:USDCAD">USDCAD · US Dollar / CAD (MT5 Forex)</option>
-            <option value="MT5:FOREX:GBPJPY">GBPJPY · Pound / Japanese Yen (MT5 Forex)</option>
-            <option value="MT5:CFD:XAUUSD">XAUUSD · Gold Spot / USD (MT5 Metals)</option>
-            <option value="MT5:INDICES:NAS100">NAS100 · Nasdaq 100 / USTEC (MT5 Index)</option>
-            <option value="MT5:INDICES:US30">US30 · Wall Street 30 / DJ30 (MT5 Index)</option>
-            <option value="MT5:CRYPTO:BTCUSD">BTCUSD · Bitcoin / USD (MT5 Live 24/7)</option>
-            <option value="MT5:CRYPTO:ETHUSD">ETHUSD · Ethereum / USD (MT5 Live 24/7)</option>
+          <optgroup label="MT5 FOREX & KIM LOẠI (Exness / FTMO / IC Markets)">
+            <option value="MT5:CFD:XAUUSD">XAUUSD · Vàng Spot (MT5)</option>
+            <option value="MT5:FOREX:EURUSD">EURUSD · Euro / USD (MT5)</option>
+            <option value="MT5:FOREX:GBPUSD">GBPUSD · Bảng Anh / USD (MT5)</option>
+            <option value="MT5:FOREX:USDJPY">USDJPY · USD / Yên Nhật (MT5)</option>
+            <option value="MT5:FOREX:AUDUSD">AUDUSD · AUD / USD (MT5)</option>
+            <option value="MT5:FOREX:USDCAD">USDCAD · USD / CAD (MT5)</option>
+            <option value="MT5:FOREX:GBPJPY">GBPJPY · GBP / JPY (MT5)</option>
+            <option value="MT5:INDICES:NAS100">NAS100 · Nasdaq 100 (MT5)</option>
+            <option value="MT5:INDICES:US30">US30 · Dow Jones (MT5)</option>
+            <option value="MT5:CRYPTO:BTCUSD">BTCUSD · Bitcoin / USD (MT5)</option>
+            <option value="MT5:CRYPTO:ETHUSD">ETHUSD · Ethereum / USD (MT5)</option>
           </optgroup>
-          <optgroup label="CRYPTO PERPETUAL (Bybit / Binance)">
+          <optgroup label="CRYPTO FUTURES (Bybit / Binance)">
             <option value="BYBIT:LINEAR_PERP:BTCUSDT:PERP">BTCUSDT-PERP (Bybit)</option>
             <option value="BYBIT:LINEAR_PERP:ETHUSDT:PERP">ETHUSDT-PERP (Bybit)</option>
             <option value="BYBIT:LINEAR_PERP:XAUUSDT:PERP">XAUUSDT-GOLD (Bybit)</option>
             <option value="BINANCE:USDS_M_PERP:BTCUSDT:PERP">BTCUSDT-PERP (Binance)</option>
             <option value="BINANCE:USDS_M_PERP:ETHUSDT:PERP">ETHUSDT-PERP (Binance)</option>
             <option value="BINANCE:USDS_M_PERP:XAUUSDT:PERP">XAUUSDT-GOLD (Binance PAXG)</option>
-            <option value="AGGREGATED:MULTI_PERP:BTCUSDT:COMBINED">BTCUSDT-AGG (Combined)</option>
-            <option value="AGGREGATED:MULTI_PERP:XAUUSDT:COMBINED">XAUUSDT-AGG (Gold Multi-Crypto Combined)</option>
+            <option value="AGGREGATED:MULTI_PERP:BTCUSDT:COMBINED">BTCUSDT-AGG (Hợp Nhất)</option>
+            <option value="AGGREGATED:MULTI_PERP:XAUUSDT:COMBINED">XAUUSDT-AGG (Hợp Nhất)</option>
           </optgroup>
         </select>
 
-        {/* MT5 Account Connection Button */}
+        {/* 1-Click MT5 Connect Button */}
         <button
           onClick={onOpenMt5Modal}
           style={{
             background: snapshot.instrument_id.startsWith('MT5:')
-              ? 'rgba(0, 180, 216, 0.22)'
-              : '#1F2430',
-            color: snapshot.instrument_id.startsWith('MT5:') ? '#00E5FF' : '#CBD5E1',
+              ? 'rgba(0, 180, 216, 0.16)'
+              : '#1A1E27',
+            color: snapshot.instrument_id.startsWith('MT5:') ? '#00E5FF' : '#94A3B8',
             border: snapshot.instrument_id.startsWith('MT5:')
               ? '1px solid #00E5FF'
-              : '1px solid #323642',
+              : '1px solid #282E3E',
             borderRadius: '4px',
             padding: '0 8px',
             height: '26px',
-            fontSize: '10.5px',
-            fontWeight: 800,
+            fontSize: '11px',
+            fontWeight: 700,
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             gap: '5px',
           }}
-          title="Kết nối Tài khoản MetaTrader 5 (Exness, FTMO, IC Markets) & Chọn Symbol Forex"
+          title="Kết nối nhanh Tài khoản MetaTrader 5 (1-Click MT5 Bridge)"
         >
-          <span style={{ color: '#00E676' }}>●</span>
-          <span>MT5 Forex</span>
+          <span style={{ color: '#089981', fontSize: '9px' }}>●</span>
+          <span>MT5</span>
         </button>
 
-        {/* Pill 2: History Depth & Tick Compression (10D - BT) */}
-        <select
-          value={tickAggregation.toString()}
-          onChange={(e) => {
-            const val = e.target.value;
-            onTickAggregationChange?.(val === 'auto' ? 'auto' : parseInt(val, 10));
-          }}
-          style={centerSelectStyle}
-          title="Độ sâu Lịch sử & Gom cụm Bước giá (Days - Tick Compression BT)"
-        >
-          <option value="auto">10D - Auto BT</option>
-          <option value="1">10D - 1T</option>
-          <option value="2">10D - 2T</option>
-          <option value="5">10D - 5T</option>
-          <option value="10">10D - 10T</option>
-        </select>
+        {/* Vertical Separator */}
+        <div style={{ width: '1px', height: '18px', background: '#262A36', margin: '0 2px' }} />
 
-        {/* Quick Timeframe Pills for 1-click switching (Standard ATAS / TradingView Clean Row) */}
-        <div style={{ display: 'flex', background: '#1E2028', border: '1px solid #2D313B', borderRadius: '4px', padding: '1px' }}>
+        {/* Candles vs Clusters (Footprint) Switcher */}
+        <div style={{ display: 'flex', background: '#181B23', border: '1px solid #282C38', borderRadius: '4px', padding: '1px' }}>
+          <button
+            onClick={() => onChartViewModeChange?.('candlestick')}
+            style={{
+              background: chartViewMode === 'candlestick' ? '#2A303F' : 'transparent',
+              color: chartViewMode === 'candlestick' ? '#FFFFFF' : '#8E9BAE',
+              border: 'none',
+              borderRadius: '3px',
+              padding: '2px 7px',
+              fontSize: '11px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="Chế độ Nến Nhật tiêu chuẩn (Candles)"
+          >
+            Candles
+          </button>
+          <button
+            onClick={() => onChartViewModeChange?.('footprint')}
+            style={{
+              background: chartViewMode === 'footprint' || chartViewMode === 'hybrid' ? '#089981' : 'transparent',
+              color: chartViewMode === 'footprint' || chartViewMode === 'hybrid' ? '#FFFFFF' : '#8E9BAE',
+              border: 'none',
+              borderRadius: '3px',
+              padding: '2px 7px',
+              fontSize: '11px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="Chế độ Footprint Order Flow Clusters (ATAS Standard)"
+          >
+            Clusters
+          </button>
+        </div>
+
+        {/* Timeframe Quick Switcher */}
+        <div style={{ display: 'flex', background: '#181B23', border: '1px solid #282C38', borderRadius: '4px', padding: '1px' }}>
           {timeframes.map((tf) => {
             const isSelected = snapshot.timeframe_us === tf.value;
             return (
@@ -324,8 +252,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 key={tf.value}
                 onClick={() => onTimeframeChange?.(tf.value)}
                 style={{
-                  background: isSelected ? '#2D323E' : 'transparent',
-                  color: isSelected ? '#00E676' : '#78889B',
+                  background: isSelected ? '#2A303F' : 'transparent',
+                  color: isSelected ? '#38BDF8' : '#78889B',
                   border: 'none',
                   borderRadius: '3px',
                   padding: '2px 6px',
@@ -340,17 +268,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           })}
         </div>
 
-        {/* + Load More Historical Bars Button (Matches green + icon next to timeframe in DeepChart) */}
+        {/* Load More History (+) */}
         {onLoadMoreHistory && (
           <button
             onClick={onLoadMoreHistory}
             style={{
-              width: '24px',
-              height: '24px',
-              borderRadius: '50%',
-              background: 'rgba(0, 230, 118, 0.15)',
-              border: '1px solid #00E676',
-              color: '#00E676',
+              width: '22px',
+              height: '22px',
+              borderRadius: '4px',
+              background: 'rgba(56, 189, 248, 0.12)',
+              border: '1px solid #0284C7',
+              color: '#38BDF8',
               fontSize: '13px',
               fontWeight: 800,
               cursor: 'pointer',
@@ -358,36 +286,93 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
             }}
-            title="Nạp thêm +200 nến lịch sử từ sàn (Load More Historical Bars)"
+            title="Nạp thêm 200 nến lịch sử từ sàn"
           >
             +
           </button>
         )}
+
+        {/* History / Tick Compression */}
+        <select
+          value={tickAggregation.toString()}
+          onChange={(e) => {
+            const val = e.target.value;
+            onTickAggregationChange?.(val === 'auto' ? 'auto' : parseInt(val, 10));
+          }}
+          style={{ ...centerSelectStyle, background: '#181B23', border: '1px solid #282C38', fontSize: '10.5px', padding: '2px 6px' }}
+          title="Độ sâu Lịch sử & Gom cụm Bước giá"
+        >
+          <option value="auto">10D - Auto BT</option>
+          <option value="1">10D - 1T</option>
+          <option value="2">10D - 2T</option>
+          <option value="5">10D - 5T</option>
+          <option value="10">10D - 10T</option>
+        </select>
       </div>
 
       {/* =====================================================================
-          RIGHT GROUP: Multi-Chart Layout Switcher, 4 Workspaces & Replay
+          GROUP 2 (CENTER): Indicators (Ctrl+I), Templates & Multi-Chart
           ===================================================================== */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-        {/* Multi-Chart Grid Layout Switcher (Matches ATAS / DeepChart Multi-Chart Icon in Top-Right) */}
+        {/* Indicators Manager Button (ATAS Ctrl+I Standard) */}
+        <button
+          onClick={onOpenIndicators}
+          style={{
+            background: '#181B23',
+            border: '1px solid #2E384D',
+            borderRadius: '4px',
+            color: '#38BDF8',
+            padding: '2px 9px',
+            fontSize: '11px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            height: '26px',
+          }}
+          title="Quản lý Chỉ báo Order Flow & Định lượng (Ctrl + I)"
+        >
+          <span>Chỉ báo (Ctrl+I)</span>
+        </button>
+
+        {/* Templates Selector */}
+        <select
+          onChange={(e) => {
+            const val = e.target.value;
+            if (val) {
+              window.dispatchEvent(new CustomEvent('vluxchart:apply_preset', { detail: val }));
+            }
+          }}
+          defaultValue=""
+          style={{ ...centerSelectStyle, background: '#181B23', border: '1px solid #282C38', color: '#CBD5E1', fontSize: '11px', padding: '2px 8px' }}
+          title="Mẫu Thiết Lập Biểu Đồ Chuẩn (Templates)"
+        >
+          <option value="" disabled>Mẫu Biểu Đồ ▾</option>
+          <option value="atas_standard">ATAS Standard (Clusters + VP + HTF)</option>
+          <option value="scalper_flow">Scalper Flow (Imbalances + Abs)</option>
+          <option value="macro_institutional">Macro Institutional (Levels + VP)</option>
+          <option value="clean_price">Clean Price Action</option>
+        </select>
+
+        {/* Multi-Chart Grid Switcher */}
         <div
           style={{
             display: 'flex',
-            background: '#1E2028',
-            border: '1px solid #2D313B',
+            background: '#181B23',
+            border: '1px solid #282C38',
             borderRadius: '4px',
             padding: '1px',
             gap: '1px',
           }}
-          title="Chế độ mở nhiều biểu đồ cùng lúc & đa khung thời gian (Multi-Chart Split Layout)"
+          title="Mở nhiều biểu đồ đa khung thời gian song song"
         >
           {(
             [
-              { id: '1x1', label: '▢ 1', tip: '1 Biểu đồ toàn màn hình' },
-              { id: '2v', label: '◫ 2V', tip: '2 Biểu đồ chia dọc (VD: Trái 5m Footprint | Phải 15m Structure)' },
-              { id: '2h', label: '⊟ 2H', tip: '2 Biểu đồ chia ngang (Trên / Dưới)' },
-              { id: '3L', label: '◰ 3', tip: '3 Biểu đồ (1 Lớn bên trái + 2 Nhỏ bên phải)' },
-              { id: '2x2', label: '⊞ 4', tip: '4 Biểu đồ Lưới 2×2 (1m, 5m, 15m, 1h chạy song song)' },
+              { id: '1x1', label: '1' },
+              { id: '2v', label: '2V' },
+              { id: '2h', label: '2H' },
+              { id: '2x2', label: '4' },
             ] as const
           ).map((l) => {
             const isActive = multiChartLayout === l.id;
@@ -396,79 +381,96 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 key={l.id}
                 onClick={() => onMultiChartLayoutChange?.(l.id)}
                 style={{
-                  background: isActive ? '#00E676' : 'transparent',
-                  color: isActive ? '#090B10' : '#94A3B8',
+                  background: isActive ? '#38BDF8' : 'transparent',
+                  color: isActive ? '#090B10' : '#8E9BAE',
                   border: 'none',
                   borderRadius: '3px',
                   padding: '2px 6px',
-                  fontSize: '10px',
+                  fontSize: '10.5px',
                   fontWeight: isActive ? 800 : 600,
                   cursor: 'pointer',
                   fontFamily: '"JetBrains Mono", monospace',
                 }}
-                title={l.tip}
               >
                 {l.label}
               </button>
             );
           })}
         </div>
+      </div>
 
-        {/* 4 Workspaces Switcher */}
-        <div style={{ display: 'flex', background: '#1E2028', border: '1px solid #2D313B', borderRadius: '4px', padding: '1px', gap: '1px' }}>
-          {[
-            { id: 'order_flow_pro', label: 'Order Flow', color: '#00E676' },
-            { id: 'options_confluence', label: 'Options GEX', color: '#C084FC' },
-            { id: 'pure_heatmap', label: 'Heatmap', color: '#00E5FF' },
-            { id: 'market_intel', label: 'Zones', color: '#FDB022' },
-          ].map((ws) => {
-            const active = layoutPreset === ws.id || (ws.id === 'order_flow_pro' && layoutPreset === 'standard');
-            return (
-              <button
-                key={ws.id}
-                onClick={() => onLayoutPresetChange?.(ws.id)}
-                style={{
-                  background: active ? '#2D323E' : 'transparent',
-                  color: active ? ws.color : '#8E9BAE',
-                  border: 'none',
-                  borderRadius: '3px',
-                  padding: '2px 7px',
-                  fontSize: '10.5px',
-                  fontWeight: active ? 700 : 500,
-                  cursor: 'pointer',
-                }}
-              >
-                {ws.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Replay Engine Toggle */}
+      {/* =====================================================================
+          GROUP 3 (RIGHT): ATAS [T] Chart Trader, [DOM], Replay & Controls
+          ===================================================================== */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+        {/* ATAS [T] Chart Trader Toggle Button */}
         <button
-          onClick={() => onToggleReplay?.(!isReplayMode)}
+          onClick={() => onToggleRightTab?.('trading')}
           style={{
-            background: isReplayMode ? '#FDB022' : '#252830',
-            color: isReplayMode ? '#0B0D12' : '#94A3B8',
-            border: `1px solid ${isReplayMode ? '#FDB022' : '#323642'}`,
-            padding: '2px 7px',
+            background: activeRightTab === 'trading' ? 'rgba(8, 153, 129, 0.22)' : '#181B23',
+            color: activeRightTab === 'trading' ? '#089981' : '#CBD5E1',
+            border: activeRightTab === 'trading' ? '1px solid #089981' : '1px solid #282C38',
             borderRadius: '4px',
-            fontSize: '10.5px',
+            padding: '2px 8px',
+            height: '26px',
+            fontSize: '11px',
+            fontWeight: 800,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}
+          title="Bật/Tắt Bảng Đặt Lệnh Nhanh [T] (ATAS Chart Trader)"
+        >
+          <span style={{ color: activeRightTab === 'trading' ? '#089981' : '#94A3B8' }}>[T]</span>
+          <span>Trader</span>
+        </button>
+
+        {/* [DOM] Ladder Toggle Button */}
+        <button
+          onClick={() => onToggleRightTab?.('dom_tape')}
+          style={{
+            background: activeRightTab === 'dom_tape' || activeRightTab === 'dom' ? 'rgba(56, 189, 248, 0.22)' : '#181B23',
+            color: activeRightTab === 'dom_tape' || activeRightTab === 'dom' ? '#38BDF8' : '#CBD5E1',
+            border: activeRightTab === 'dom_tape' || activeRightTab === 'dom' ? '1px solid #38BDF8' : '1px solid #282C38',
+            borderRadius: '4px',
+            padding: '2px 8px',
+            height: '26px',
+            fontSize: '11px',
             fontWeight: 700,
             cursor: 'pointer',
           }}
+          title="Bật/Tắt Sổ Lệnh Chuyên Sâu Depth of Market (DOM)"
+        >
+          DOM
+        </button>
+
+        {/* Market Replay Engine */}
+        <button
+          onClick={() => onToggleReplay?.(!isReplayMode)}
+          style={{
+            background: isReplayMode ? '#F59E0B' : '#181B23',
+            color: isReplayMode ? '#0B0D12' : '#94A3B8',
+            border: `1px solid ${isReplayMode ? '#F59E0B' : '#282C38'}`,
+            padding: '2px 8px',
+            borderRadius: '4px',
+            fontSize: '11px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            height: '26px',
+          }}
           title="Bật/Tắt Chế độ Tua Lại Lịch Sử (Market Replay)"
         >
-          {isReplayMode ? '⏹ Exit Replay' : '⏱ Replay'}
+          {isReplayMode ? '⏹ Exit' : '⏱ Replay'}
         </button>
 
         {isReplayMode && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', background: '#1E2028', padding: '1px 5px', borderRadius: '4px', border: '1px solid #FDB022' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', background: '#181B23', padding: '1px 5px', borderRadius: '4px', border: '1px solid #F59E0B' }}>
             <button
               onClick={() => (isPlaying ? onPauseReplay?.() : onPlayReplay?.())}
               style={{
-                background: isPlaying ? '#EF4444' : '#00E676',
-                color: '#0B0D12',
+                background: isPlaying ? '#EF4444' : '#089981',
+                color: '#FFF',
                 border: 'none',
                 borderRadius: '3px',
                 padding: '1px 5px',
@@ -481,28 +483,46 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </button>
             <button
               onClick={() => onStepReplay?.()}
-              style={{ background: '#2D323E', color: '#FFF', border: 'none', borderRadius: '3px', padding: '1px 4px', fontSize: '10px', cursor: 'pointer' }}
+              style={{ background: '#2A303F', color: '#FFF', border: 'none', borderRadius: '3px', padding: '1px 4px', fontSize: '10px', cursor: 'pointer' }}
             >
               ⏭
             </button>
             <button
               onClick={() => onResetReplay?.()}
-              style={{ background: '#2D323E', color: '#FFF', border: 'none', borderRadius: '3px', padding: '1px 4px', fontSize: '10px', cursor: 'pointer' }}
+              style={{ background: '#2A303F', color: '#FFF', border: 'none', borderRadius: '3px', padding: '1px 4px', fontSize: '10px', cursor: 'pointer' }}
             >
               ⏮
             </button>
-            <span style={{ fontSize: '9.5px', color: '#FDB022', fontWeight: 700 }}>
+            <span style={{ fontSize: '9.5px', color: '#F59E0B', fontWeight: 700 }}>
               {speed}x·{progressPct.toFixed(0)}%
             </span>
           </div>
         )}
+
+        {/* Backtest Strategy Icon */}
+        <button
+          onClick={onOpenBacktest}
+          style={{ ...iconBtnStyle, color: '#089981', fontWeight: 700 }}
+          title="Kiểm thử Chiến lược Order Flow (Backtest $)"
+        >
+          $
+        </button>
+
+        {/* Settings Gear */}
+        <button
+          onClick={onOpenSettings}
+          style={iconBtnStyle}
+          title="Cài đặt Biểu đồ"
+        >
+          ⚙
+        </button>
 
         {/* Sound Toggle */}
         <button
           onClick={onToggleSound}
           style={{
             ...iconBtnStyle,
-            color: soundEnabled ? '#00E676' : '#64748B',
+            color: soundEnabled ? '#089981' : '#64748B',
           }}
           title={soundEnabled ? 'Âm thanh cảnh báo: BẬT' : 'Âm thanh cảnh báo: TẮT'}
         >

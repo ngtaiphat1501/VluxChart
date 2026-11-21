@@ -145,14 +145,20 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       setShowOfVp(true);
       setShowOfBa(true);
       setShowOfDeltaP(false);
+      setZoom((z) => (z < 0.85 ? 1.15 : z));
+      setPanX(0);
     } else if (forcedDisplayMode === 'footprint_vp') {
       setShowOfVp(true);
       setShowOfBa(false);
       setShowOfDeltaP(false);
+      setZoom((z) => (z < 0.85 ? 1.15 : z));
+      setPanX(0);
     } else if (forcedDisplayMode === 'footprint_delta') {
       setShowOfVp(false);
       setShowOfBa(true);
       setShowOfDeltaP(true);
+      setZoom((z) => (z < 0.85 ? 1.15 : z));
+      setPanX(0);
     } else if (forcedDisplayMode === 'candlestick') {
       setShowOfVp(false);
       setShowOfBa(false);
@@ -270,6 +276,16 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       setShowOptions(false);
     }
   };
+
+  // Listen to Global "vluxchart:apply_preset" event from Toolbar template dropdown
+  useEffect(() => {
+    const handlePreset = (e: any) => {
+      const preset = e.detail;
+      if (preset) handleApplyPreset(preset);
+    };
+    window.addEventListener('vluxchart:apply_preset', handlePreset);
+    return () => window.removeEventListener('vluxchart:apply_preset', handlePreset);
+  }, []);
 
   // Fetch 100% Real Deribit Options Chain when STRIKES overlay is active on BTC / ETH
   useEffect(() => {
@@ -1912,7 +1928,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       const barPrimaryCol = isBullish ? bullPrimary : bearPrimary;
       const barBorderCol = isBullish ? bullBorder : bearBorder;
       const hasFootprint = bar.footprint && bar.footprint.length > 0 && bar.completeness !== 'OHLCV_Only';
-      const isFootprintDetailed = hasFootprint && barWidth >= 36 && (showOfVp || showOfBa || showOfDeltaP);
+      const isFootprintDetailed = hasFootprint && barWidth >= 28 && (showOfVp || showOfBa || showOfDeltaP);
 
       let topMostCellY = highY;
 

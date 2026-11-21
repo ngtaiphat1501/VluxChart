@@ -86,7 +86,7 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
       timeframeUs: snapshot.timeframe_us || 300_000_000, // 5m
       displayMode: 'footprint_vp_ba',
       tickAggregation: 'auto',
-      subPanel: 'cot',
+      subPanel: 'vol',
     },
     {
       id: 'pane-2',
@@ -110,7 +110,7 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
       timeframeUs: 60_000_000, // 1m
       displayMode: 'footprint_delta',
       tickAggregation: 'auto',
-      subPanel: 'cot',
+      subPanel: 'vol',
     },
   ]);
 
@@ -212,6 +212,7 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
         onTickAggregationChange={onTickAggregationChange}
         isTradingPanelOpen={isTradingPanelOpen}
         onToggleTradingPanel={onToggleTradingPanel}
+        initialBottomSubPanel={mainPane.subPanel}
         forcedDisplayMode={mainPane.displayMode}
         magnetEnabled={magnetEnabled}
         isPickingPriceOnChart={isPickingPriceOnChart}

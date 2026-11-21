@@ -1226,7 +1226,7 @@ export function App() {
               letterSpacing: '0.6px',
             }}
           >
-            <span style={{ color: '#00E676' }}>///</span>
+            <span style={{ color: '#089981' }}>///</span>
             <span>VLUXCHART</span>
           </div>
 
@@ -1296,10 +1296,10 @@ export function App() {
                   VOL: <strong style={{ color: '#E2E8F0' }}>{totalVol.toLocaleString()} {unit}</strong>
                 </span>
                 <span>
-                  BUY: <strong style={{ color: '#00E676' }}>{buyVol.toLocaleString()}</strong>
+                  BUY: <strong style={{ color: '#089981' }}>{buyVol.toLocaleString()}</strong>
                 </span>
                 <span>
-                  SELL: <strong style={{ color: '#EF4444' }}>{sellVol.toLocaleString()}</strong>
+                  SELL: <strong style={{ color: '#F23645' }}>{sellVol.toLocaleString()}</strong>
                 </span>
                 {unknownVol > 0 && (
                   <span>
@@ -1308,12 +1308,12 @@ export function App() {
                 )}
                 <span>
                   Δ:{' '}
-                  <strong style={{ color: deltaVol >= 0 ? '#00E676' : '#EF4444' }}>
+                  <strong style={{ color: deltaVol >= 0 ? '#089981' : '#F23645' }}>
                     {deltaVol >= 0 ? '+' : ''}{deltaVol.toLocaleString()}
                   </strong>
                 </span>
                 <span>
-                  CVD: <strong style={{ color: '#00E5FF' }}>{totalCvd >= 0 ? '+' : ''}{totalCvd.toLocaleString()}</strong>
+                  CVD: <strong style={{ color: '#38BDF8' }}>{totalCvd >= 0 ? '+' : ''}{totalCvd.toLocaleString()}</strong>
                 </span>
                 <span>
                   SPEED: <strong style={{ color: '#38BDF8' }}>{speed1s.toLocaleString()} {unit}/s</strong>

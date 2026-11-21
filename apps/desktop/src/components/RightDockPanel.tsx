@@ -196,12 +196,12 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
   return (
     <aside
       style={{
-        width: activeTab === 'trading' ? '264px' : '310px',
-        minWidth: activeTab === 'trading' ? '254px' : '280px',
-        maxWidth: '380px',
+        width: activeTab === 'trading' ? '236px' : '280px',
+        minWidth: activeTab === 'trading' ? '230px' : '260px',
+        maxWidth: '340px',
         height: '100%',
-        background: '#12151C',
-        borderLeft: '1px solid #262932',
+        background: '#12141A',
+        borderLeft: '1px solid #232733',
         display: 'flex',
         flexDirection: 'column',
         zIndex: 15,
@@ -209,12 +209,12 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
         flexShrink: 0,
       }}
     >
-      {/* Tab Navigation Header */}
+      {/* Tab Navigation Header (ATAS Chart Trader Tab Group) */}
       <div
         style={{
           height: '32px',
-          background: '#16181D',
-          borderBottom: '1px solid #262932',
+          background: '#151820',
+          borderBottom: '1px solid #232733',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -222,28 +222,26 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
           gap: '2px',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '2px', overflowX: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
           {[
-            { id: 'trading' as const, label: 'TRADING', col: '#10B981' },
-            { id: 'dom_tape' as const, label: 'DOM+TAPE', col: '#00E676' },
-            { id: 'dom' as const, label: 'DOM', col: '#00E5FF' },
-            { id: 'tape' as const, label: 'TAPE', col: '#FFD600' },
-            { id: 'insights' as const, label: 'INTEL', col: '#A855F7' },
-            { id: 'greeks' as const, label: 'GREEKS', col: '#C084FC' },
+            { id: 'trading' as const, label: 'TRADER', col: '#089981' },
+            { id: 'dom_tape' as const, label: 'DOM', col: '#38BDF8' },
+            { id: 'tape' as const, label: 'TAPE', col: '#F59E0B' },
+            { id: 'insights' as const, label: 'INTEL', col: '#A78BFA' },
           ].map((tab) => {
-            const isAct = activeTab === tab.id;
+            const isAct = activeTab === tab.id || (tab.id === 'dom_tape' && activeTab === 'dom');
             return (
               <button
                 key={tab.id}
                 onClick={() => onSelectTab(tab.id)}
                 style={{
-                  background: isAct ? '#222631' : 'transparent',
+                  background: isAct ? '#202532' : 'transparent',
                   color: isAct ? tab.col : '#8E9BAE',
                   border: 'none',
                   borderBottom: isAct ? `2px solid ${tab.col}` : '2px solid transparent',
-                  padding: '4px 6px',
-                  fontSize: '10px',
-                  fontWeight: isAct ? 700 : 600,
+                  padding: '4px 7px',
+                  fontSize: '10.5px',
+                  fontWeight: isAct ? 800 : 600,
                   cursor: 'pointer',
                   whiteSpace: 'nowrap',
                 }}
