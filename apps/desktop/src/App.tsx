@@ -14,6 +14,11 @@ import { RightDockPanel, RightDockTab } from './components/RightDockPanel';
 import { OptionsGammaProfilePanel } from './components/OptionsGammaProfilePanel';
 import { MultiChartGrid, MultiChartLayout } from './components/MultiChartGrid';
 import { Mt5ConnectionModal } from './components/Mt5ConnectionModal';
+import { OptionsBoardModal } from './components/OptionsBoardModal';
+import { ScriptEditorModal } from './components/ScriptEditorModal';
+import { InstrumentStudioModal } from './components/InstrumentStudioModal';
+import { AiConnectModal } from './components/AiConnectModal';
+import { RiskManagerModal } from './components/RiskManagerModal';
 import { OrderFlowAlert } from './components/AlertNotificationCenter';
 import {
   loadWorkspaceConfig,
@@ -78,6 +83,11 @@ export function App() {
   const [isZoneInspectorOpen, setIsZoneInspectorOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMt5ModalOpen, setIsMt5ModalOpen] = useState(false);
+  const [isOptionsBoardOpen, setIsOptionsBoardOpen] = useState(false);
+  const [isScriptEditorOpen, setIsScriptEditorOpen] = useState(false);
+  const [isInstrumentStudioOpen, setIsInstrumentStudioOpen] = useState(false);
+  const [isAiConnectOpen, setIsAiConnectOpen] = useState(false);
+  const [isRiskManagerOpen, setIsRiskManagerOpen] = useState(false);
   const [workspaceConfig, setWorkspaceConfig] = useState<WorkspaceConfig>(loadWorkspaceConfig());
   const [layoutPreset, setLayoutPreset] = useState<LayoutPreset>(workspaceConfig.layoutPreset || 'order_flow_pro');
   const [showTape, setShowTape] = useState<boolean>(workspaceConfig.showTape ?? true);
@@ -1039,6 +1049,11 @@ export function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenMt5Modal={handleMt5ButtonClick}
         onOpenIndicators={() => window.dispatchEvent(new CustomEvent('deepchart:open_indicators'))}
+        onOpenOptionsBoard={() => setIsOptionsBoardOpen(true)}
+        onOpenScriptEditor={() => setIsScriptEditorOpen(true)}
+        onOpenInstrumentStudio={() => setIsInstrumentStudioOpen(true)}
+        onOpenAiConnect={() => setIsAiConnectOpen(true)}
+        onOpenRiskManager={() => setIsRiskManagerOpen(true)}
         layoutPreset={layoutPreset}
         onLayoutPresetChange={handleLayoutPresetChange}
         activeRightTab={rightDockTab}
@@ -1354,6 +1369,48 @@ export function App() {
         onClose={() => setIsMt5ModalOpen(false)}
         currentInstrumentId={snapshot.instrument_id}
         onSelectInstrument={handleInstrumentChange}
+      />
+
+      {/* ATAS Options Board & Strategy Analyzer Modal */}
+      <OptionsBoardModal
+        isOpen={isOptionsBoardOpen}
+        onClose={() => setIsOptionsBoardOpen(false)}
+        instrumentId={snapshot.instrument_id}
+        currentPriceTicks={snapshot.bars?.[snapshot.bars.length - 1]?.close_ticks || null}
+      />
+
+      {/* ATAS Script Editor NEW Modal */}
+      <ScriptEditorModal
+        isOpen={isScriptEditorOpen}
+        onClose={() => setIsScriptEditorOpen(false)}
+      />
+
+      {/* ATAS Instrument Studio Modal */}
+      <InstrumentStudioModal
+        isOpen={isInstrumentStudioOpen}
+        onClose={() => setIsInstrumentStudioOpen(false)}
+        onApplySynthetic={(name) => {
+          handleInstrumentChange(name);
+        }}
+        onSelectFrameType={(type, val) => {
+          if (type === 'time') {
+            handleTimeframeChange(val);
+          }
+        }}
+      />
+
+      {/* ATAS AI Connect Modal */}
+      <AiConnectModal
+        isOpen={isAiConnectOpen}
+        onClose={() => setIsAiConnectOpen(false)}
+        snapshot={snapshot}
+      />
+
+      {/* ATAS Risk Manager NEW Modal */}
+      <RiskManagerModal
+        isOpen={isRiskManagerOpen}
+        onClose={() => setIsRiskManagerOpen(false)}
+        instrumentId={snapshot.instrument_id}
       />
     </div>
   );

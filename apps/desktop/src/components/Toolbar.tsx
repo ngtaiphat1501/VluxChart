@@ -32,6 +32,11 @@ interface ToolbarProps {
   onMultiChartLayoutChange?: (layout: '1x1' | '2v' | '2h' | '3L' | '2x2') => void;
   onOpenMt5Modal?: () => void;
   onOpenIndicators?: () => void;
+  onOpenOptionsBoard?: () => void;
+  onOpenScriptEditor?: () => void;
+  onOpenInstrumentStudio?: () => void;
+  onOpenAiConnect?: () => void;
+  onOpenRiskManager?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -65,6 +70,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onMultiChartLayoutChange,
   onOpenMt5Modal,
   onOpenIndicators,
+  onOpenOptionsBoard,
+  onOpenScriptEditor,
+  onOpenInstrumentStudio,
+  onOpenAiConnect,
+  onOpenRiskManager,
 }) => {
   const isReplayMode = !!snapshot.playback?.is_replay_mode;
   const isPlaying = snapshot.playback?.state === 'Playing';
@@ -334,6 +344,116 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           title="Quản lý Chỉ báo Order Flow & Định lượng (Ctrl + I)"
         >
           <span>Chỉ báo (Ctrl+I)</span>
+        </button>
+
+        {/* ATAS Options Board */}
+        <button
+          onClick={onOpenOptionsBoard}
+          style={{
+            background: '#181B23',
+            border: '1px solid #282C38',
+            borderRadius: '4px',
+            color: '#CBD5E1',
+            padding: '2px 8px',
+            fontSize: '11px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            height: '26px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+          }}
+          title="Bảng Quyền Chọn Deribit & Phân Tích Chiến Lược (Options Board & Suite)"
+        >
+          <span>Options</span>
+        </button>
+
+        {/* ATAS Instrument Studio */}
+        <button
+          onClick={onOpenInstrumentStudio}
+          style={{
+            background: '#181B23',
+            border: '1px solid #282C38',
+            borderRadius: '4px',
+            color: '#CBD5E1',
+            padding: '2px 8px',
+            fontSize: '11px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            height: '26px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+          }}
+          title="Tạo Cặp Lai & Khung Nến Tùy Biến (Instrument Studio & Custom Frames)"
+        >
+          <span>Studio</span>
+        </button>
+
+        {/* ATAS Script Editor */}
+        <button
+          onClick={onOpenScriptEditor}
+          style={{
+            background: '#181B23',
+            border: '1px solid #282C38',
+            borderRadius: '4px',
+            color: '#CBD5E1',
+            padding: '2px 8px',
+            fontSize: '11px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            height: '26px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+          }}
+          title="Soạn Thảo Kịch Bản Chiến Lược Trực Tiếp Trên Chart (Script Editor NEW)"
+        >
+          <span>&lt;/&gt; Script</span>
+        </button>
+
+        {/* ATAS AI Connect */}
+        <button
+          onClick={onOpenAiConnect}
+          style={{
+            background: '#181B23',
+            border: '1px solid #282C38',
+            borderRadius: '4px',
+            color: '#34D399',
+            padding: '2px 8px',
+            fontSize: '11px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            height: '26px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+          }}
+          title="Kết Nối AI Agent & Giải Thích Dòng Lệnh Định Chế (AI Connect)"
+        >
+          <span>AI Connect</span>
+        </button>
+
+        {/* ATAS Risk Manager */}
+        <button
+          onClick={onOpenRiskManager}
+          style={{
+            background: '#181B23',
+            border: '1px solid #282C38',
+            borderRadius: '4px',
+            color: '#CBD5E1',
+            padding: '2px 8px',
+            fontSize: '11px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            height: '26px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+          }}
+          title="Bộ Điều Hành Quản Trị Rủi Ro & Khóa Lệnh (Risk Manager NEW)"
+        >
+          <span>Risk</span>
         </button>
 
         {/* Templates Selector */}
