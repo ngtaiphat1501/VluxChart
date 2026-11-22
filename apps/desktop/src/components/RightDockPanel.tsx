@@ -62,6 +62,7 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
   const [tpEnabled, setTpEnabled] = useState<boolean>(true);
   const [slPips, setSlPips] = useState<number>(20);
   const [tpPips, setTpPips] = useState<number>(40);
+  const [isCrossTrading, setIsCrossTrading] = useState<boolean>(false);
 
   // Reset default entry price when switching symbol or switching to Limit/Stop tab
   useEffect(() => {
@@ -335,6 +336,45 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
                 {mt5Account.lastOrderFeedback.message}
               </div>
             )}
+
+            {/* ATAS Cross-Trading Routing Bar */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#161922',
+                border: '1px solid #262C3D',
+                borderRadius: '3px',
+                padding: '4px 6px',
+                fontSize: '9.5px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <span style={{ color: isCrossTrading ? '#38BDF8' : '#64748B', fontWeight: 700 }}>
+                  ⚡ Cross-Trading
+                </span>
+                <span style={{ color: '#94A3B8', fontSize: '9px' }}>
+                  {isCrossTrading ? 'Analyze Chart ➔ Route MT5' : 'Direct Execution'}
+                </span>
+              </div>
+              <button
+                onClick={() => setIsCrossTrading(!isCrossTrading)}
+                style={{
+                  background: isCrossTrading ? '#0284C7' : '#232936',
+                  color: isCrossTrading ? '#FFF' : '#94A3B8',
+                  border: 'none',
+                  borderRadius: '2px',
+                  padding: '2px 6px',
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+                title="Cross-Trading: Phân tích biểu đồ Crypto/Futures, tự động định tuyến lệnh vào MT5 Micro"
+              >
+                {isCrossTrading ? 'ACTIVE' : 'OFF'}
+              </button>
+            </div>
 
             {/* 2. ONE-CLICK TRADING SELL (BID) / BUY (ASK) BOXES (ATAS Standard Solid Flat) */}
             <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
@@ -1131,6 +1171,7 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
                 orderBook={snapshot.order_book}
                 activePriceTicks={currentPriceTicks}
                 instrumentId={snapshot.instrument_id}
+                recentTrades={snapshot.recent_trades || []}
                 isFloating={false}
                 onPopOutToggle={onPopOutDom}
               />
@@ -1151,6 +1192,7 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
             orderBook={snapshot.order_book}
             activePriceTicks={currentPriceTicks}
             instrumentId={snapshot.instrument_id}
+            recentTrades={snapshot.recent_trades || []}
             isFloating={false}
             onPopOutToggle={onPopOutDom}
           />

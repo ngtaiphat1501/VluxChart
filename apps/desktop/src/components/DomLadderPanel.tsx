@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { OrderBookSnapshotDTO } from '../types';
+import { OrderBookSnapshotDTO, TradeEventDTO } from '../types';
 import { CANONICAL_INSTRUMENTS, formatInstrumentPrice, formatPriceDiffPips, getInstrumentMeta } from '../utils/instrumentRegistry';
 
 interface DomLadderPanelProps {
@@ -7,6 +7,7 @@ interface DomLadderPanelProps {
   priceTick?: number;
   activePriceTicks?: number;
   instrumentId?: string;
+  recentTrades?: TradeEventDTO[];
   onClose?: () => void;
   onPopOutToggle?: () => void;
   isFloating?: boolean;
@@ -17,12 +18,14 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
   priceTick,
   activePriceTicks,
   instrumentId = 'BTC-USDT-PERP',
+  recentTrades = [],
   onClose,
   onPopOutToggle,
   isFloating = false,
 }) => {
   const [centerOffset, setCenterOffset] = useState<number>(0);
   const [tickMult, setTickMult] = useState<number>(1);
+  const [showFootprintCol, setShowFootprintCol] = useState<boolean>(true);
 
   const instMeta = getInstrumentMeta(instrumentId);
   const isBtc = instrumentId.includes('BTC');
@@ -76,7 +79,7 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
   }, [orderBook]);
 
   // Generate 27 price rows strictly aligned to effectiveTick and aggregated
-  const rows = useMemo(() => {
+  const { rows, maxFpVol } = useMemo(() => {
     const list = [];
     // Ensure center aligns exactly to an effectiveTick boundary
     const alignedMid = Math.round(midPrice / effectiveTick) * effectiveTick;
@@ -96,10 +99,29 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
       askMap.set(binPrice, (askMap.get(binPrice) || 0) + a.quantity_units);
     });
 
+    // Bin recent executed trades into rolling footprint buckets
+    const fpVolMap = new Map<number, number>();
+    const fpDeltaMap = new Map<number, number>();
+    let mFpVol = 1;
+
+    recentTrades.forEach((t) => {
+      const binPrice = Math.round(t.price_ticks / effectiveTick) * effectiveTick;
+      const isBuy = t.aggressor === 'Buy' || t.aggressor === 'buy';
+      const prevVol = fpVolMap.get(binPrice) || 0;
+      const newVol = prevVol + t.quantity_units;
+      fpVolMap.set(binPrice, newVol);
+      if (newVol > mFpVol) mFpVol = newVol;
+
+      const prevDelta = fpDeltaMap.get(binPrice) || 0;
+      fpDeltaMap.set(binPrice, prevDelta + (isBuy ? t.quantity_units : -t.quantity_units));
+    });
+
     for (let i = 13; i >= -13; i--) {
       const price = center + i * effectiveTick;
       const bQty = bidMap.get(price) || 0;
       const aQty = askMap.get(price) || 0;
+      const fpVol = fpVolMap.get(price) || 0;
+      const fpDelta = fpDeltaMap.get(price) || 0;
       const isBestB = Math.abs(price - bestBid) < effectiveTick / 2;
       const isBestA = Math.abs(price - bestAsk) < effectiveTick / 2;
 
@@ -107,12 +129,14 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
         price,
         bidQty: bQty,
         askQty: aQty,
+        fpVol,
+        fpDelta,
         isBestBid: isBestB,
         isBestAsk: isBestA,
       });
     }
-    return list;
-  }, [midPrice, centerOffset, effectiveTick, orderBook, bestBid, bestAsk]);
+    return { rows: list, maxFpVol: mFpVol };
+  }, [midPrice, centerOffset, effectiveTick, orderBook, bestBid, bestAsk, recentTrades]);
 
   const bidRatioPct = totalBidVol + totalAskVol > 0
     ? Math.round((totalBidVol / (totalBidVol + totalAskVol)) * 100)
@@ -190,6 +214,24 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
             >
               ⌖
             </button>
+
+            {/* ATAS Smart DOM: Rolling Footprint Column Toggle */}
+            <button
+              onClick={() => setShowFootprintCol(!showFootprintCol)}
+              style={{
+                background: showFootprintCol ? '#0284C7' : '#2A2E39',
+                color: '#FFF',
+                border: 'none',
+                borderRadius: '3px',
+                padding: '2px 5px',
+                fontSize: '9px',
+                cursor: 'pointer',
+                fontWeight: 700,
+              }}
+              title="Toggle ATAS Rolling Footprint Column (Traded Volume & Delta inside DOM)"
+            >
+              FP
+            </button>
             {onPopOutToggle && (
               <button
                 onClick={onPopOutToggle}
@@ -253,7 +295,7 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 78px 1fr',
+          gridTemplateColumns: showFootprintCol ? '1fr 68px 1fr 48px' : '1fr 78px 1fr',
           padding: '4px 6px',
           background: '#161922',
           borderBottom: '1px solid #2A2E39',
@@ -266,6 +308,11 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
         <span style={{ textAlign: 'left', paddingLeft: '4px', color: '#089981' }}>BID ({unit})</span>
         <span>PRICE</span>
         <span style={{ textAlign: 'right', paddingRight: '4px', color: '#F23645' }}>ASK ({unit})</span>
+        {showFootprintCol && (
+          <span style={{ textAlign: 'right', paddingRight: '4px', color: '#00E5FF' }} title="Rolling Footprint (Delta)">
+            FP (Δ)
+          </span>
+        )}
       </div>
 
       {/* Ladder Rows */}
@@ -273,13 +320,15 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
         {rows.map((row) => {
           const bidWidthPct = maxVol > 0 ? (row.bidQty / maxVol) * 100 : 0;
           const askWidthPct = maxVol > 0 ? (row.askQty / maxVol) * 100 : 0;
+          const fpWidthPct = maxFpVol > 0 ? (row.fpVol / maxFpVol) * 100 : 0;
+          const isPosDelta = row.fpDelta >= 0;
 
           return (
             <div
               key={row.price}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 78px 1fr',
+                gridTemplateColumns: showFootprintCol ? '1fr 68px 1fr 48px' : '1fr 78px 1fr',
                 height: '21px',
                 alignItems: 'center',
                 borderBottom: '1px solid rgba(42, 46, 57, 0.4)',
@@ -332,7 +381,7 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
                   justifyContent: 'center',
                   borderLeft: '1px solid #2A2E39',
                   borderRight: '1px solid #2A2E39',
-                  fontSize: '10.5px',
+                  fontSize: '10px',
                 }}
               >
                 {formatInstrumentPrice(row.price, instrumentId)}
@@ -366,6 +415,47 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
                   {formatQty(row.askQty)}
                 </span>
               </div>
+
+              {/* ATAS Smart DOM: Rolling Footprint Column */}
+              {showFootprintCol && (
+                <div
+                  style={{
+                    height: '100%',
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    paddingRight: '4px',
+                    borderLeft: '1px solid rgba(42, 46, 57, 0.6)',
+                  }}
+                  title={`Traded Vol: ${formatQty(row.fpVol)} | Delta: ${row.fpDelta >= 0 ? '+' : ''}${formatQty(row.fpDelta)}`}
+                >
+                  {row.fpVol > 0 && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        right: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: `${fpWidthPct}%`,
+                        background: isPosDelta ? 'rgba(8, 153, 129, 0.35)' : 'rgba(242, 54, 69, 0.35)',
+                        borderRight: `2px solid ${isPosDelta ? '#089981' : '#F23645'}`,
+                      }}
+                    />
+                  )}
+                  <span
+                    style={{
+                      position: 'relative',
+                      zIndex: 1,
+                      color: row.fpVol === 0 ? '#475569' : isPosDelta ? '#34D399' : '#F87171',
+                      fontWeight: 700,
+                      fontSize: '9px',
+                    }}
+                  >
+                    {row.fpVol > 0 ? (isPosDelta ? `+${formatQty(row.fpDelta)}` : formatQty(row.fpDelta)) : '-'}
+                  </span>
+                </div>
+              )}
             </div>
           );
         })}
