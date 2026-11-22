@@ -2654,6 +2654,173 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       }
     }
 
+    // =========================================================================
+    // MBO BUNDLE: ICEBERG TRACKER OVERLAY
+    // =========================================================================
+    if (showIcebergs) {
+      ctx.save();
+      if (icebergs && icebergs.length > 0) {
+        icebergs.forEach((ice) => {
+          const y = priceToY(ice.price_ticks);
+          if (y < 0 || y > chartHeight) return;
+          const isBid = ice.side === 'Bid';
+          const col = isBid ? '#10B981' : '#EF4444';
+
+          ctx.strokeStyle = col;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(chartRightX - 160, y);
+          ctx.lineTo(chartRightX, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Diamond Iceberg Glyph
+          ctx.fillStyle = col;
+          ctx.beginPath();
+          ctx.moveTo(chartRightX - 166, y);
+          ctx.lineTo(chartRightX - 161, y - 5);
+          ctx.lineTo(chartRightX - 156, y);
+          ctx.lineTo(chartRightX - 161, y + 5);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#E2E8F0';
+          ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText(`ICE ${ice.side.toUpperCase()} +${ice.hidden_volume_units} (x${ice.refill_count})`, chartRightX - 4, y - 4);
+        });
+      } else {
+        // Fallback from footprint cell execution clusters
+        analyzedBars.slice(-15).forEach((bar, bIdx) => {
+          const bx = startX + (analyzedBars.length - 15 + bIdx) * barPitch + barWidth / 2;
+          if (bx < 0 || bx > chartRightX) return;
+          const avgVol = bar.stats.totalVolume / Math.max(1, bar.footprint.length);
+          bar.footprint.forEach((cell) => {
+            if (cell.total_units >= avgVol * 3.5 && cell.trade_count >= 12) {
+              const y = priceToY(cell.price_ticks);
+              if (y < 0 || y > chartHeight) return;
+              ctx.fillStyle = cell.delta_units >= 0 ? '#10B981' : '#EF4444';
+              ctx.beginPath();
+              ctx.moveTo(bx, y - 4);
+              ctx.lineTo(bx + 4, y);
+              ctx.lineTo(bx, y + 4);
+              ctx.lineTo(bx - 4, y);
+              ctx.closePath();
+              ctx.fill();
+            }
+          });
+        });
+      }
+      ctx.restore();
+    }
+
+    // =========================================================================
+    // MBO BUNDLE: STOP RUNS TRACKER
+    // =========================================================================
+    if (showStopRuns && analyzedBars.length >= 10) {
+      ctx.save();
+      const lookback = Math.max(5, analyzedBars.length - 35);
+      for (let i = lookback; i < analyzedBars.length - 1; i++) {
+        const cur = analyzedBars[i];
+        const prev1 = analyzedBars[i - 1];
+        const prev2 = analyzedBars[i - 2];
+        if (!prev1 || !prev2) continue;
+
+        const isHighSweep = cur.high_ticks > Math.max(prev1.high_ticks, prev2.high_ticks) && cur.close_ticks < prev1.high_ticks;
+        const isLowSweep = cur.low_ticks < Math.min(prev1.low_ticks, prev2.low_ticks) && cur.close_ticks > prev1.low_ticks;
+
+        const bx = startX + i * barPitch + barWidth / 2;
+        if (bx < 0 || bx > chartRightX) continue;
+
+        if (isHighSweep) {
+          const y = priceToY(cur.high_ticks);
+          if (y >= 0 && y <= chartHeight) {
+            ctx.fillStyle = '#EF4444';
+            ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('⚡ STOP RUN', bx, y - 8);
+          }
+        } else if (isLowSweep) {
+          const y = priceToY(cur.low_ticks);
+          if (y >= 0 && y <= chartHeight) {
+            ctx.fillStyle = '#10B981';
+            ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('⚡ STOP RUN', bx, y + 14);
+          }
+        }
+      }
+      ctx.restore();
+    }
+
+    // =========================================================================
+    // MBO BUNDLE: SWEEPS TRACKER (Intermarket Sweeps)
+    // =========================================================================
+    if (showSweeps && analyzedBars.length >= 5) {
+      ctx.save();
+      analyzedBars.slice(-25).forEach((bar, idx) => {
+        const barIdx = analyzedBars.length - 25 + idx;
+        const bx = startX + barIdx * barPitch + barWidth / 2;
+        if (bx < 0 || bx > chartRightX) return;
+
+        const isBullSweep = bar.stats.delta > 0 && bar.stats.delta >= bar.stats.totalVolume * 0.55 && (bar.high_ticks - bar.low_ticks) >= instMeta.tickSize * 8;
+        const isBearSweep = bar.stats.delta < 0 && Math.abs(bar.stats.delta) >= bar.stats.totalVolume * 0.55 && (bar.high_ticks - bar.low_ticks) >= instMeta.tickSize * 8;
+
+        if (isBullSweep) {
+          const y = priceToY(bar.low_ticks);
+          ctx.fillStyle = '#10B981';
+          ctx.font = 'bold 9px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('➔ SWEEP', bx, y + 15);
+        } else if (isBearSweep) {
+          const y = priceToY(bar.high_ticks);
+          ctx.fillStyle = '#EF4444';
+          ctx.font = 'bold 9px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('➔ SWEEP', bx, y - 8);
+        }
+      });
+      ctx.restore();
+    }
+
+    // =========================================================================
+    // OPTIONS SUITE: EXPECTED MOVE CONE / RAYS
+    // =========================================================================
+    if (showOptionsExpectedMove && liveOptionsChain && liveOptionsChain.isRealData) {
+      ctx.save();
+      const spot = liveOptionsChain.underlyingPrice;
+      const avgIv = liveOptionsChain.strikes.reduce((acc, s) => acc + s.avg_iv, 0) / Math.max(1, liveOptionsChain.strikes.length) || 55;
+      const expMoveUsd = spot * 0.85 * (avgIv / 100) * Math.sqrt(7 / 365);
+      const upperTicks = Math.round((spot + expMoveUsd) * 100);
+      const lowerTicks = Math.round((spot - expMoveUsd) * 100);
+
+      const upperY = priceToY(upperTicks);
+      const lowerY = priceToY(lowerTicks);
+
+      [
+        { y: upperY, lbl: `+EXP MOVE 7D $${Math.round(spot + expMoveUsd).toLocaleString()} (±$${Math.round(expMoveUsd)})` },
+        { y: lowerY, lbl: `-EXP MOVE 7D $${Math.round(spot - expMoveUsd).toLocaleString()} (±$${Math.round(expMoveUsd)})` },
+      ].forEach((line) => {
+        if (line.y >= 0 && line.y <= chartHeight) {
+          ctx.strokeStyle = '#38BDF8';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.moveTo(chartRightX - 250, line.y);
+          ctx.lineTo(chartRightX, line.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.fillStyle = '#38BDF8';
+          ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText(line.lbl, chartRightX - 6, line.y - 4);
+        }
+      });
+      ctx.restore();
+    }
+
     if (showBubbles) {
       analyzedBars.forEach((bar, bIdx) => {
         const bx = startX + bIdx * barPitch + barWidth / 2;
