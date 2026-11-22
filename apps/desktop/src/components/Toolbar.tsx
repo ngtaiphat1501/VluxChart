@@ -412,28 +412,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <span>&lt;/&gt; Script</span>
         </button>
 
-        {/* ATAS AI Connect */}
-        <button
-          onClick={onOpenAiConnect}
-          style={{
-            background: '#181B23',
-            border: '1px solid #282C38',
-            borderRadius: '4px',
-            color: '#34D399',
-            padding: '2px 8px',
-            fontSize: '11px',
-            fontWeight: 700,
-            cursor: 'pointer',
-            height: '26px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '3px',
-          }}
-          title="Kết Nối AI Agent & Giải Thích Dòng Lệnh Định Chế (AI Connect)"
-        >
-          <span>AI Connect</span>
-        </button>
-
         {/* ATAS Risk Manager */}
         <button
           onClick={onOpenRiskManager}

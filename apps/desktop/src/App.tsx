@@ -17,7 +17,6 @@ import { Mt5ConnectionModal } from './components/Mt5ConnectionModal';
 import { OptionsBoardModal } from './components/OptionsBoardModal';
 import { ScriptEditorModal } from './components/ScriptEditorModal';
 import { InstrumentStudioModal } from './components/InstrumentStudioModal';
-import { AiConnectModal } from './components/AiConnectModal';
 import { RiskManagerModal } from './components/RiskManagerModal';
 import { OrderFlowAlert } from './components/AlertNotificationCenter';
 import {
@@ -86,7 +85,6 @@ export function App() {
   const [isOptionsBoardOpen, setIsOptionsBoardOpen] = useState(false);
   const [isScriptEditorOpen, setIsScriptEditorOpen] = useState(false);
   const [isInstrumentStudioOpen, setIsInstrumentStudioOpen] = useState(false);
-  const [isAiConnectOpen, setIsAiConnectOpen] = useState(false);
   const [isRiskManagerOpen, setIsRiskManagerOpen] = useState(false);
   const [workspaceConfig, setWorkspaceConfig] = useState<WorkspaceConfig>(loadWorkspaceConfig());
   const [layoutPreset, setLayoutPreset] = useState<LayoutPreset>(workspaceConfig.layoutPreset || 'order_flow_pro');
@@ -1052,7 +1050,6 @@ export function App() {
         onOpenOptionsBoard={() => setIsOptionsBoardOpen(true)}
         onOpenScriptEditor={() => setIsScriptEditorOpen(true)}
         onOpenInstrumentStudio={() => setIsInstrumentStudioOpen(true)}
-        onOpenAiConnect={() => setIsAiConnectOpen(true)}
         onOpenRiskManager={() => setIsRiskManagerOpen(true)}
         layoutPreset={layoutPreset}
         onLayoutPresetChange={handleLayoutPresetChange}
@@ -1397,13 +1394,6 @@ export function App() {
             handleTimeframeChange(val);
           }
         }}
-      />
-
-      {/* ATAS AI Connect Modal */}
-      <AiConnectModal
-        isOpen={isAiConnectOpen}
-        onClose={() => setIsAiConnectOpen(false)}
-        snapshot={snapshot}
       />
 
       {/* ATAS Risk Manager NEW Modal */}
