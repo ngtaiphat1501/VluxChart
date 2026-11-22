@@ -6,3 +6,4 @@ taskkill /F /IM deepchart-desktop.exe >nul 2>&1
 timeout /t 1 /nobreak >nul
 echo Starting DeepChart Windows Desktop Terminal...
 powershell -ExecutionPolicy Bypass -File "%~dp0scripts\run_desktop_app.ps1"
+if %ERRORLEVEL% neq 0 pause
