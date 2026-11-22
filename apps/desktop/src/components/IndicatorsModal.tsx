@@ -20,13 +20,22 @@ export interface IndicatorConfigState {
   showNakedPoc: boolean;
   showStackedImbalances: boolean;
 
-  // Liquidity & Options
+  // Liquidity & Depth
   showSlClusters: boolean;
   showAbsorption: boolean;
   showOptions: boolean;
   showBubbles: boolean;
   showHeatmap: boolean;
   showChartDom?: boolean;
+
+  // MBO Bundle (Market-by-Order CME & Crypto L3)
+  showIcebergs?: boolean;
+  showStopRuns?: boolean;
+  showSweeps?: boolean;
+
+  // Options Suite (Deribit Live & Analytical Greeks)
+  showOptionsExpectedMove?: boolean;
+  showRiskManager?: boolean;
 }
 
 export interface IndicatorsModalProps {
@@ -41,7 +50,7 @@ interface IndicatorItemDef {
   key: keyof IndicatorConfigState;
   name: string;
   shortCode: string;
-  category: 'sub_panels' | 'clusters' | 'structure' | 'liquidity';
+  category: 'sub_panels' | 'clusters' | 'structure' | 'liquidity' | 'mbo' | 'options';
   zone: 'Sub-Panel' | 'Chart Overlay';
   zoneDesc: string;
   badge: string;
@@ -273,6 +282,82 @@ const INDICATOR_CATALOG: IndicatorItemDef[] = [
     description:
       'Bản đồ nhiệt độ lịch sử độ sâu sổ lệnh L2, cho thấy các lệnh đặt chờ đang nằm ở đâu, khi nào bị rút lệnh (Spoofing) hoặc khi nào được bồi thêm thanh khoản.',
   },
+
+  // ─── 5. MBO BUNDLE (Market-By-Order L3) ───
+  {
+    key: 'showIcebergs',
+    name: 'MBO Iceberg Tracker (Lệnh nạp ẩn tổ chức)',
+    shortCode: 'MBO-ICE',
+    category: 'mbo',
+    zone: 'Chart Overlay',
+    zoneDesc: 'Huy hiệu khối băng nổi đánh dấu mức giá có lệnh nạp ẩn',
+    badge: 'CME MBO',
+    formula: 'TotalExec > InitialDisplayed * 1.5 & RefillCount >= 1',
+    description:
+      'Nhận diện các lệnh ẩn Iceberg lớn của tổ chức liên tục tái nạp (Replenishment) thanh khoản tại 1 mức giá cố định mà không cho giá trượt qua.',
+  },
+  {
+    key: 'showStopRuns',
+    name: 'MBO Stop Runs Tracker (Bẫy quét dừng lỗ)',
+    shortCode: 'STOP-RUNS',
+    category: 'mbo',
+    zone: 'Chart Overlay',
+    zoneDesc: 'Tia cảnh báo tại các vùng quét thanh khoản dừng lỗ cực hạn',
+    badge: 'Liquidity Run',
+    formula: 'Tick Volume Acceleration > 3σ at Swing Extremes',
+    description:
+      'Phát hiện chuỗi kích hoạt lệnh Stop Loss dồn dập (Stop Cascades) tại các đỉnh/đáy then chốt, nhận diện thời điểm cá mập săn thanh khoản rồi đảo chiều.',
+  },
+  {
+    key: 'showSweeps',
+    name: 'MBO Sweeps Tracker (Lệnh càn quét đa tầng)',
+    shortCode: 'SWEEPS',
+    category: 'mbo',
+    zone: 'Chart Overlay',
+    zoneDesc: 'Mũi tên xung lực quét sạch các mức giá liên tiếp',
+    badge: 'Aggressive Sweep',
+    formula: 'Single Market Order sweeping >= 3 price levels in < 1ms',
+    description:
+      'Đánh dấu các lệnh thị trường càn quét liên tiếp nhiều bước giá (Intermarket Sweeps), biểu hiện xung lực mua/bán áp đảo của các thuật toán HFT.',
+  },
+
+  // ─── 6. OPTIONS CHAIN & SUITE ───
+  {
+    key: 'showOptions',
+    name: 'Options Key Levels (Call/Put Walls & Max Pain)',
+    shortCode: 'OPT-WALLS',
+    category: 'options',
+    zone: 'Chart Overlay',
+    zoneDesc: 'Đường ngang đánh dấu Call Wall, Put Wall, Zero Gamma Flip',
+    badge: 'Deribit Live',
+    formula: 'Call Wall = Max(Call OI) | Put Wall = Max(Put OI) | Max Pain',
+    description:
+      'Các mốc thực tế từ thị trường quyền chọn Deribit: Call Wall, Put Wall, Zero Gamma Flip. Giúp dự báo biên độ dao động và điểm nén giá của Market Maker hedging.',
+  },
+  {
+    key: 'showOptionsExpectedMove',
+    name: 'Options Chain: Expected Move (Dải biến độ kỳ vọng)',
+    shortCode: 'OPT-EXP',
+    category: 'options',
+    zone: 'Chart Overlay',
+    zoneDesc: 'Dải hình nón hoặc tia ngang biên độ biến động kỳ vọng',
+    badge: 'Expected Move',
+    formula: 'Expected Move = Spot × 0.85 × ATM_IV × √(DTE / 365)',
+    description:
+      'Biên độ dao động giá dự kiến theo biến động hàm ý (Implied Volatility) từ hợp đồng quyền chọn ATM straddle cho kỳ đáo hạn gần nhất.',
+  },
+  {
+    key: 'showRiskManager',
+    name: 'Risk Manager Monitor (Giám sát rủi ro tài khoản)',
+    shortCode: 'RISK-MGR',
+    category: 'sub_panels',
+    zone: 'Sub-Panel',
+    zoneDesc: 'Cửa sổ giám sát giới hạn lỗ và khóa lệnh vi phạm',
+    badge: 'ATAS Risk',
+    formula: 'Daily Loss Limit, Max Lot, Trailing Max Drawdown',
+    description:
+      'Theo dõi và tự động khóa lệnh khi chạm giới hạn lỗ tối đa trong ngày (Daily Max Loss) và kiểm soát rủi ro tài khoản định chế.',
+  },
 ];
 
 export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({
@@ -282,7 +367,7 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({
   onChangeConfig,
   onApplyPreset,
 }) => {
-  const [activeTab, setActiveTab] = useState<'all' | 'sub_panels' | 'clusters' | 'structure' | 'liquidity'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'sub_panels' | 'clusters' | 'structure' | 'liquidity' | 'mbo' | 'options'>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedKey, setSelectedKey] = useState<keyof IndicatorConfigState>('showVolHistogram');
 
@@ -440,6 +525,8 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({
                 { id: 'clusters', label: 'Footprint' },
                 { id: 'structure', label: 'Cấu trúc' },
                 { id: 'liquidity', label: 'Thanh khoản' },
+                { id: 'mbo', label: 'MBO Bundle' },
+                { id: 'options', label: 'Options Suite' },
               ].map((tab) => {
                 const active = activeTab === tab.id;
                 return (

@@ -217,7 +217,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   const [showBubbles, setShowBubbles] = useState<boolean>(false);
   const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
   const [showOptions, setShowOptions] = useState<boolean>(false); // Options Strikes, GEX Gamma Exposure, Call/Put Walls & Zero Gamma Flip
-  const [showIcebergs, setShowIcebergs] = useState<boolean>(false);
+  const [showIcebergs, setShowIcebergs] = useState<boolean>(false); // MBO Iceberg Orders
+  const [showStopRuns, setShowStopRuns] = useState<boolean>(false); // MBO Stop Runs Tracker
+  const [showSweeps, setShowSweeps] = useState<boolean>(false); // MBO Sweeps Tracker
+  const [showOptionsExpectedMove, setShowOptionsExpectedMove] = useState<boolean>(false); // Options Expected Move
+  const [showRiskManager, setShowRiskManager] = useState<boolean>(false); // Risk Manager Monitor
   const [showPriorDayLevels, setShowPriorDayLevels] = useState<boolean>(true); // HTF-PD: Prior Day High, Low, POC, VAH, VAL
   const [showStackedImbalances, setShowStackedImbalances] = useState<boolean>(true); // STK-IMB: Extended Stacked Imbalance Zones
   const [liveOptionsChain, setLiveOptionsChain] = useState<LiveOptionsChainResult | null>(null);
@@ -4658,6 +4662,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           showBubbles,
           showHeatmap,
           showChartDom,
+          showIcebergs,
+          showStopRuns,
+          showSweeps,
+          showOptionsExpectedMove,
+          showRiskManager,
         }}
         onChangeConfig={(updates) => {
           if (updates.showVolHistogram !== undefined) setShowVolHistogram(updates.showVolHistogram);
@@ -4679,6 +4688,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           if (updates.showBubbles !== undefined) setShowBubbles(updates.showBubbles);
           if (updates.showHeatmap !== undefined) setShowHeatmap(updates.showHeatmap);
           if (updates.showChartDom !== undefined) setShowChartDom(updates.showChartDom);
+          if (updates.showIcebergs !== undefined) setShowIcebergs(updates.showIcebergs);
+          if (updates.showStopRuns !== undefined) setShowStopRuns(updates.showStopRuns);
+          if (updates.showSweeps !== undefined) setShowSweeps(updates.showSweeps);
+          if (updates.showOptionsExpectedMove !== undefined) setShowOptionsExpectedMove(updates.showOptionsExpectedMove);
+          if (updates.showRiskManager !== undefined) setShowRiskManager(updates.showRiskManager);
         }}
         onApplyPreset={handleApplyPreset}
       />
