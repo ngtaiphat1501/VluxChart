@@ -4216,6 +4216,183 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
 
         {/* =====================================================================
+            ATAS INSTITUTIONAL ACTIVE INDICATORS LEGEND BAR (TOP-LEFT OF CHART)
+            ===================================================================== */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '8px',
+            left: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            zIndex: 12,
+            background: 'rgba(17, 20, 28, 0.90)',
+            border: '1px solid rgba(40, 47, 63, 0.75)',
+            backdropFilter: 'blur(4px)',
+            borderRadius: '4px',
+            padding: '2px 5px',
+            fontSize: '9.5px',
+            fontFamily: '"JetBrains Mono", monospace',
+            userSelect: 'none',
+          }}
+        >
+          {/* Quick Indicator Manager Button */}
+          <button
+            onClick={() => setIsIndicatorsModalOpen(true)}
+            style={{
+              background: '#1F2637',
+              color: '#38BDF8',
+              border: '1px solid #2D374D',
+              borderRadius: '3px',
+              padding: '1px 5px',
+              fontSize: '9px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '3px',
+            }}
+            title="Mở Quản Lý Chỉ Báo ATAS (Phím tắt: Ctrl+I)"
+          >
+            <span>⚙ Chỉ Báo</span>
+          </button>
+
+          <span style={{ width: '1px', height: '12px', background: '#2D374D', margin: '0 1px' }} />
+
+          {/* VWAP */}
+          <button
+            onClick={() => setShowVwap(!showVwap)}
+            style={{
+              background: showVwap ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+              color: showVwap ? '#38BDF8' : '#64748B',
+              border: showVwap ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid transparent',
+              borderRadius: '2px',
+              padding: '1px 4px',
+              fontSize: '9px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="Developing VWAP & Standard Deviation Bands (Click để bật/tắt)"
+          >
+            VWAP
+          </button>
+
+          {/* CVD Sub-Panel */}
+          <button
+            onClick={() => setShowCvdPanel(!showCvdPanel)}
+            style={{
+              background: showCvdPanel ? 'rgba(0, 229, 255, 0.15)' : 'transparent',
+              color: showCvdPanel ? '#00E5FF' : '#64748B',
+              border: showCvdPanel ? '1px solid rgba(0, 229, 255, 0.4)' : '1px solid transparent',
+              borderRadius: '2px',
+              padding: '1px 4px',
+              fontSize: '9px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="Cumulative Volume Delta Sub-Panel (Click để bật/tắt)"
+          >
+            CVD
+          </button>
+
+          {/* Volume Histogram Sub-Panel */}
+          <button
+            onClick={() => setShowVolHistogram(!showVolHistogram)}
+            style={{
+              background: showVolHistogram ? 'rgba(8, 153, 129, 0.15)' : 'transparent',
+              color: showVolHistogram ? '#089981' : '#64748B',
+              border: showVolHistogram ? '1px solid rgba(8, 153, 129, 0.4)' : '1px solid transparent',
+              borderRadius: '2px',
+              padding: '1px 4px',
+              fontSize: '9px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="Volume Histogram Sub-Panel (Click để bật/tắt)"
+          >
+            VOL
+          </button>
+
+          {/* Stacked Imbalances */}
+          <button
+            onClick={() => setShowStackedImbalances(!showStackedImbalances)}
+            style={{
+              background: showStackedImbalances ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+              color: showStackedImbalances ? '#F59E0B' : '#64748B',
+              border: showStackedImbalances ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid transparent',
+              borderRadius: '2px',
+              padding: '1px 4px',
+              fontSize: '9px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="Stacked Imbalances Zones ≥ 3 levels (Click để bật/tắt)"
+          >
+            IMB
+          </button>
+
+          {/* Session Volume Profile */}
+          <button
+            onClick={() => setShowVolumeProfile(!showVolumeProfile)}
+            style={{
+              background: showVolumeProfile ? 'rgba(168, 85, 247, 0.15)' : 'transparent',
+              color: showVolumeProfile ? '#C084FC' : '#64748B',
+              border: showVolumeProfile ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid transparent',
+              borderRadius: '2px',
+              padding: '1px 4px',
+              fontSize: '9px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="Session Volume Profile D-VP (Click để bật/tắt)"
+          >
+            D-VP
+          </button>
+
+          {/* MBO Bundle (Iceberg, Stop Runs, Sweeps) */}
+          <button
+            onClick={() => {
+              const next = !showIcebergs;
+              setShowIcebergs(next);
+              setShowStopRuns(next);
+              setShowSweeps(next);
+            }}
+            style={{
+              background: showIcebergs ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+              color: showIcebergs ? '#38BDF8' : '#64748B',
+              border: showIcebergs ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid transparent',
+              borderRadius: '2px',
+              padding: '1px 4px',
+              fontSize: '9px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="MBO Bundle (Iceberg, Stop Runs, Sweeps) (Click để bật/tắt)"
+          >
+            MBO
+          </button>
+
+          {/* Naked POC */}
+          <button
+            onClick={() => setShowNakedPoc(!showNakedPoc)}
+            style={{
+              background: showNakedPoc ? 'rgba(251, 191, 36, 0.15)' : 'transparent',
+              color: showNakedPoc ? '#FBBF24' : '#64748B',
+              border: showNakedPoc ? '1px solid rgba(251, 191, 36, 0.4)' : '1px solid transparent',
+              borderRadius: '2px',
+              padding: '1px 4px',
+              fontSize: '9px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="Naked POC Rays (Click để bật/tắt)"
+          >
+            NPOC
+          </button>
+        </div>
+
+        {/* =====================================================================
             TRADINGVIEW RIGHT-CLICK & "[+]" AXIS QUICK ORDER / DRAWING MENU
             ===================================================================== */}
         {contextMenu && (() => {
