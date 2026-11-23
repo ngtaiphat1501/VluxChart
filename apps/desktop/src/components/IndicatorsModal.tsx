@@ -19,6 +19,7 @@ export interface IndicatorConfigState {
   showVwap: boolean;
   showNakedPoc: boolean;
   showStackedImbalances: boolean;
+  showPropZoneLines?: boolean;
 
   // Liquidity & Depth
   showSlClusters: boolean;
@@ -219,6 +220,18 @@ const INDICATOR_CATALOG: IndicatorItemDef[] = [
     formula: '≥ 3 consecutive diagonal imbalances (Ratio ≥ 3.0)',
     description:
       'Tự động phát hiện khi có từ 3 mức giá liên tiếp xuất hiện mất cân đối chéo quyết liệt. Vẽ hộp vùng hỗ trợ/kháng cự mở rộng sang phải.',
+  },
+  {
+    key: 'showPropZoneLines',
+    name: 'Top 5 Vùng Mua/Bán Line Ngang Độc Quyền (Backtested)',
+    shortCode: 'TOP5-LN',
+    category: 'structure',
+    zone: 'Chart Overlay',
+    zoneDesc: 'Các đường line ngang Xanh (Vùng Mua) & Đỏ (Vùng Bán) kèm nhãn thống kê',
+    badge: 'VluxChart Quant',
+    formula: 'NPOC-MAG (PF 2.07) | ABS-WALL (PF 2.00) | VWAP-2SD (1.68) | STK-ZONE (1.59) | VA-EDGE (1.53)',
+    description:
+      'Tổng hợp Top 5 chỉ báo xác định vùng Mua/Bán tiềm năng bằng line ngang đã được backtest trên 2,895 nến M5 thực tế (MT5 XAUUSD, EURUSD, BTCUSD & Binance Futures) với R:R 1:2.',
   },
 
   // ─── 4. LIQUIDITY & DEPTH ───

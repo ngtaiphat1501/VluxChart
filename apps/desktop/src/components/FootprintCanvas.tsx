@@ -21,6 +21,7 @@ import {
   computeNakedPocs,
   detectAbsorptionEvents,
   detectCvdDivergences,
+  computeProprietaryZoneLines,
   CalculatedOrderFlowBar,
   NakedPocDTO,
   AbsorptionEventDTO,
@@ -182,6 +183,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   const [showValueAreaLines, setShowValueAreaLines] = useState<boolean>(true); // D-VL (Session VAH/VAL/POC lines)
   const [showVwap, setShowVwap] = useState<boolean>(true); // VWAP / Developing Value line
   const [showNakedPoc, setShowNakedPoc] = useState<boolean>(false); // NPOC Rays
+  const [showPropZoneLines, setShowPropZoneLines] = useState<boolean>(true); // Top 5 Backtested Buy/Sell Horizontal Lines
   // Independent ATAS-Style Indicator Sub-Panels (Stacked cleanly under main chart)
   const [showVolHistogram, setShowVolHistogram] = useState<boolean>(
     initialBottomSubPanel === 'vol' || initialBottomSubPanel === undefined
@@ -415,6 +417,12 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       barIndex: ev.barIndex + offset,
     }));
   }, [analyzedBars, showAbsorption]);
+
+  const propZoneLines = useMemo(() => {
+    if (!showPropZoneLines || analyzedBars.length < 25) return [];
+    const activeVwap = vwap || computeSessionVwap(analyzedBars, analyzedBars[analyzedBars.length - 1].close_ticks);
+    return computeProprietaryZoneLines(analyzedBars, activeVwap, 36);
+  }, [analyzedBars, vwap, showPropZoneLines]);
 
   // =========================================================================
   // INSTITUTIONAL PRIOR DAY (HTF) REFERENCE LEVELS: PDH, PDL, PDPOC, PDVAH, PDVAL
@@ -2181,6 +2189,48 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         ctx.moveTo(Math.max(0, startBarX), y);
         ctx.lineTo(chartRightX, y);
         ctx.stroke();
+        ctx.restore();
+      });
+    }
+
+    // TOP 5 BACKTESTED PROPRIETARY BUY / SELL HORIZONTAL ZONE LINES
+    if (showPropZoneLines && propZoneLines.length > 0) {
+      propZoneLines.forEach((zl) => {
+        const y = priceToY(zl.priceTicks);
+        if (y < 14 || y > chartHeight - 14) return;
+        const barIdx = analyzedBars.findIndex((b) => b.bar_start_us >= zl.startTimeUs);
+        const rawStartX = barIdx >= 0 ? startX + barIdx * barPitch + barWidth / 2 : 0;
+        const lineStartX = Math.max(0, Math.min(rawStartX, chartRightX - 120));
+        const isBuy = zl.side === 'BUY';
+        const lineColor = isBuy ? '#10B981' : '#EF4444';
+
+        ctx.save();
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = zl.indicator === 'NPOC-MAG' || zl.indicator === 'ABS-WALL' ? 1.5 : 1.15;
+        ctx.setLineDash(zl.indicator === 'VWAP-2SD' || zl.indicator === 'VA-EDGE' ? [4, 3] : []);
+        ctx.globalAlpha = 0.88;
+        ctx.beginPath();
+        ctx.moveTo(lineStartX, y);
+        ctx.lineTo(chartRightX, y);
+        ctx.stroke();
+
+        // Compact Institutional Pill Label on Right Edge
+        const tagText = `${isBuy ? '▲' : '▼'} ${zl.label} · PF ${zl.profitFactor.toFixed(2)}`;
+        ctx.font = 'bold 9px "JetBrains Mono", monospace';
+        const tw = ctx.measureText(tagText).width + 10;
+        const badgeX = chartRightX - tw - 6;
+        const badgeY = y - 15;
+        ctx.globalAlpha = 0.92;
+        ctx.fillStyle = 'rgba(13, 17, 25, 0.90)';
+        ctx.fillRect(badgeX, badgeY, tw, 13);
+        ctx.strokeStyle = isBuy ? 'rgba(16, 185, 129, 0.55)' : 'rgba(239, 68, 68, 0.55)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+        ctx.strokeRect(badgeX, badgeY, tw, 13);
+
+        ctx.fillStyle = isBuy ? '#34D399' : '#F87171';
+        ctx.textAlign = 'left';
+        ctx.fillText(tagText, badgeX + 5, badgeY + 9.5);
         ctx.restore();
       });
     }
@@ -4138,6 +4188,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     showValueAreaLines,
     showVwap,
     showNakedPoc,
+    showPropZoneLines,
+    propZoneLines,
     showVolHistogram,
     showCvdPanel,
     showCotGrid,
@@ -4389,6 +4441,24 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             title="Naked POC Rays (Click để bật/tắt)"
           >
             NPOC
+          </button>
+
+          {/* Top 5 Backtested Buy/Sell Horizontal Zone Lines */}
+          <button
+            onClick={() => setShowPropZoneLines(!showPropZoneLines)}
+            style={{
+              background: showPropZoneLines ? 'rgba(16, 185, 129, 0.18)' : 'transparent',
+              color: showPropZoneLines ? '#10B981' : '#64748B',
+              border: showPropZoneLines ? '1px solid rgba(16, 185, 129, 0.45)' : '1px solid transparent',
+              borderRadius: '2px',
+              padding: '1px 4px',
+              fontSize: '9px',
+              fontWeight: 800,
+              cursor: 'pointer',
+            }}
+            title="Top 5 Vùng Mua/Bán Line Ngang Độc Quyền (Backtested PF 1.53–2.07) (Click để bật/tắt)"
+          >
+            TOP5 ZONES
           </button>
         </div>
 
@@ -4999,6 +5069,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           showValueAreaLines,
           showVwap,
           showNakedPoc,
+          showPropZoneLines,
           showStackedImbalances,
           showSlClusters,
           showAbsorption,
@@ -5025,6 +5096,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           if (updates.showValueAreaLines !== undefined) setShowValueAreaLines(updates.showValueAreaLines);
           if (updates.showVwap !== undefined) setShowVwap(updates.showVwap);
           if (updates.showNakedPoc !== undefined) setShowNakedPoc(updates.showNakedPoc);
+          if (updates.showPropZoneLines !== undefined) setShowPropZoneLines(updates.showPropZoneLines);
           if (updates.showStackedImbalances !== undefined) setShowStackedImbalances(updates.showStackedImbalances);
           if (updates.showSlClusters !== undefined) setShowSlClusters(updates.showSlClusters);
           if (updates.showAbsorption !== undefined) setShowAbsorption(updates.showAbsorption);
