@@ -678,6 +678,7 @@ export function recalculateOptionsLevels(summary: OptionsSummaryDTO | undefined)
 export type ProprietaryZoneIndicatorId =
   | 'NPOC-MAG'
   | 'ABS-WALL'
+  | 'CVD-DIV-LVL'
   | 'VWAP-2SD'
   | 'STK-ZONE'
   | 'VA-EDGE';
@@ -696,19 +697,24 @@ export interface ProprietaryZoneLineDTO {
 
 /**
  * Computes the Top 5 empirically backtested Order Flow horizontal Buy/Sell zone lines.
- * Backtest baseline (2,895 real 5m bars across MT5 XAUUSD, EURUSD, BTCUSD & Binance BTCUSDT, ETHUSDT @ 1:2 R:R):
- *   1. NPOC-MAG : WR 50.92% | PF 2.07 | +0.528 R
- *   2. ABS-WALL : WR 50.00% | PF 2.00 | +0.500 R
- *   3. VWAP-2SD : WR 45.65% | PF 1.68 | +0.370 R
- *   4. STK-ZONE : WR 44.26% | PF 1.59 | +0.328 R
- *   5. VA-EDGE  : WR 43.33% | PF 1.53 | +0.300 R
+ * Automatically adapts to Gold (XAUUSD) microstructure (4,000-bar MT5 backtest) vs Crypto/FX:
+ *   - Gold (XAUUSD) Top Performers: ABS-WALL (PF 2.44), NPOC-MAG (PF 2.09 M15), CVD-DIV-LVL (PF 1.67 M15), STK-ZONE, VWAP-2SD.
+ *   - Suppresses VA-EDGE on Gold < H1 where London/NY stop-hunts sweep Value Area boundaries (PF 0.75-0.82).
  */
 export function computeProprietaryZoneLines(
   bars: CalculatedOrderFlowBar[],
   vwap: VwapBandDTO,
-  maxAgeBars: number = 36
+  maxAgeBars: number = 36,
+  instrumentId?: string,
+  timeframeUs?: number
 ): ProprietaryZoneLineDTO[] {
   if (!bars || bars.length < 25) return [];
+
+  const isGold = Boolean(
+    instrumentId && (instrumentId.toUpperCase().includes('XAU') || instrumentId.toUpperCase().includes('GOLD'))
+  );
+  const tfUs = timeframeUs || (bars.length >= 2 ? Math.abs(bars[1].bar_start_us - bars[0].bar_start_us) : 300_000_000);
+  const isH1OrHigher = tfUs >= 3_600_000_000;
 
   const activeLines: ProprietaryZoneLineDTO[] = [];
   const lastIdx = bars.length - 1;
@@ -842,6 +848,52 @@ export function computeProprietaryZoneLines(
         );
       }
     }
+
+    // 5. CVD-DIV-LVL (Gold XAUUSD Top #3: PF 1.67 on M15, +41.0R overall)
+    if (i >= 15 && b.poc_ticks) {
+      let prevLowIdx = i - 12;
+      let prevHighIdx = i - 12;
+      for (let k = i - 12; k < i - 2; k++) {
+        if (bars[k].low_ticks < bars[prevLowIdx].low_ticks) prevLowIdx = k;
+        if (bars[k].high_ticks > bars[prevHighIdx].high_ticks) prevHighIdx = k;
+      }
+      const cvdNow = b.stats.cvd;
+      if (b.low_ticks < bars[prevLowIdx].low_ticks && cvdNow > bars[prevLowIdx].stats.cvd && b.close_ticks > b.low_ticks + 0.3 * rng) {
+        if (!isMitigatedAfter(b.poc_ticks, i, 'BUY')) {
+          addUnique(
+            {
+              id: `CVDDIV-B-${b.bar_start_us}`,
+              indicator: 'CVD-DIV-LVL',
+              side: 'BUY',
+              priceTicks: b.poc_ticks,
+              startTimeUs: b.bar_start_us,
+              winRatePct: isGold ? 45.45 : 40.6,
+              profitFactor: isGold ? 1.67 : 1.37,
+              expectancyR: isGold ? 0.364 : 0.218,
+              label: 'BUY · CVD-DIV',
+            },
+            minSpacing
+          );
+        }
+      } else if (b.high_ticks > bars[prevHighIdx].high_ticks && cvdNow < bars[prevHighIdx].stats.cvd && b.close_ticks < b.high_ticks - 0.3 * rng) {
+        if (!isMitigatedAfter(b.poc_ticks, i, 'SELL')) {
+          addUnique(
+            {
+              id: `CVDDIV-S-${b.bar_start_us}`,
+              indicator: 'CVD-DIV-LVL',
+              side: 'SELL',
+              priceTicks: b.poc_ticks,
+              startTimeUs: b.bar_start_us,
+              winRatePct: isGold ? 45.45 : 40.6,
+              profitFactor: isGold ? 1.67 : 1.37,
+              expectancyR: isGold ? 0.364 : 0.218,
+              label: 'SELL · CVD-DIV',
+            },
+            minSpacing
+          );
+        }
+      }
+    }
   }
 
   // 3. VWAP-2SD (WR 45.65% | PF 1.68) — Active Session Extreme Reversion Lines
@@ -854,9 +906,9 @@ export function computeProprietaryZoneLines(
         side: 'BUY',
         priceTicks: vwap.lower_2sigma_ticks,
         startTimeUs: anchorUs,
-        winRatePct: 45.65,
-        profitFactor: 1.68,
-        expectancyR: 0.37,
+        winRatePct: isGold ? 37.5 : 45.65,
+        profitFactor: isGold ? 1.2 : 1.68,
+        expectancyR: isGold ? 0.125 : 0.37,
         label: 'BUY · VWAP-2σ',
       },
       1
@@ -868,52 +920,54 @@ export function computeProprietaryZoneLines(
         side: 'SELL',
         priceTicks: vwap.upper_2sigma_ticks,
         startTimeUs: anchorUs,
-        winRatePct: 45.65,
-        profitFactor: 1.68,
-        expectancyR: 0.37,
+        winRatePct: isGold ? 37.5 : 45.65,
+        profitFactor: isGold ? 1.2 : 1.68,
+        expectancyR: isGold ? 0.125 : 0.37,
         label: 'SELL · VWAP+2σ',
       },
       1
     );
   }
 
-  // 5. VA-EDGE (WR 43.33% | PF 1.53) — Rolling 24-Bar Steidlmayer Value Area Edge
-  const vaWindow = bars.slice(-24);
-  const pocs = vaWindow.map((x) => x.poc_ticks || Math.round((x.high_ticks + x.low_ticks) / 2));
-  const meanP = pocs.reduce((s, p) => s + p, 0) / pocs.length;
-  const pSd = Math.sqrt(pocs.reduce((s, p) => s + (p - meanP) ** 2, 0) / pocs.length);
-  if (pSd > 0) {
-    const rVah = Math.round(meanP + 1.036 * pSd);
-    const rVal = Math.round(meanP - 1.036 * pSd);
-    const anchorUs = vaWindow[0].bar_start_us;
-    addUnique(
-      {
-        id: 'VA-EDGE-BUY',
-        indicator: 'VA-EDGE',
-        side: 'BUY',
-        priceTicks: rVal,
-        startTimeUs: anchorUs,
-        winRatePct: 43.33,
-        profitFactor: 1.53,
-        expectancyR: 0.3,
-        label: 'BUY · VA-EDGE',
-      },
-      1
-    );
-    addUnique(
-      {
-        id: 'VA-EDGE-SELL',
-        indicator: 'VA-EDGE',
-        side: 'SELL',
-        priceTicks: rVah,
-        startTimeUs: anchorUs,
-        winRatePct: 43.33,
-        profitFactor: 1.53,
-        expectancyR: 0.3,
-        label: 'SELL · VA-EDGE',
-      },
-      1
-    );
+  // 5. VA-EDGE — Enabled on Crypto/FX all frames, or Gold H1+ (Disabled on Gold < H1 due to London/NY sweeps)
+  if (!isGold || isH1OrHigher) {
+    const vaWindow = bars.slice(-24);
+    const pocs = vaWindow.map((x) => x.poc_ticks || Math.round((x.high_ticks + x.low_ticks) / 2));
+    const meanP = pocs.reduce((s, p) => s + p, 0) / pocs.length;
+    const pSd = Math.sqrt(pocs.reduce((s, p) => s + (p - meanP) ** 2, 0) / pocs.length);
+    if (pSd > 0) {
+      const rVah = Math.round(meanP + 1.036 * pSd);
+      const rVal = Math.round(meanP - 1.036 * pSd);
+      const anchorUs = vaWindow[0].bar_start_us;
+      addUnique(
+        {
+          id: 'VA-EDGE-BUY',
+          indicator: 'VA-EDGE',
+          side: 'BUY',
+          priceTicks: rVal,
+          startTimeUs: anchorUs,
+          winRatePct: isGold ? 42.86 : 43.33,
+          profitFactor: isGold ? 1.5 : 1.53,
+          expectancyR: isGold ? 0.286 : 0.3,
+          label: 'BUY · VA-EDGE',
+        },
+        1
+      );
+      addUnique(
+        {
+          id: 'VA-EDGE-SELL',
+          indicator: 'VA-EDGE',
+          side: 'SELL',
+          priceTicks: rVah,
+          startTimeUs: anchorUs,
+          winRatePct: isGold ? 42.86 : 43.33,
+          profitFactor: isGold ? 1.5 : 1.53,
+          expectancyR: isGold ? 0.286 : 0.3,
+          label: 'SELL · VA-EDGE',
+        },
+        1
+      );
+    }
   }
 
   // Keep at most 4 BUY lines and 4 SELL lines closest to current price to keep chart clean

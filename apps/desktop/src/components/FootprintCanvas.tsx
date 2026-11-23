@@ -421,8 +421,9 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   const propZoneLines = useMemo(() => {
     if (!showPropZoneLines || analyzedBars.length < 25) return [];
     const activeVwap = vwap || computeSessionVwap(analyzedBars, analyzedBars[analyzedBars.length - 1].close_ticks);
-    return computeProprietaryZoneLines(analyzedBars, activeVwap, 36);
-  }, [analyzedBars, vwap, showPropZoneLines]);
+    const tfUs = analyzedBars[0]?.timeframe_us;
+    return computeProprietaryZoneLines(analyzedBars, activeVwap, 36, instrumentId, tfUs);
+  }, [analyzedBars, vwap, showPropZoneLines, instrumentId]);
 
   // =========================================================================
   // INSTITUTIONAL PRIOR DAY (HTF) REFERENCE LEVELS: PDH, PDL, PDPOC, PDVAH, PDVAL
