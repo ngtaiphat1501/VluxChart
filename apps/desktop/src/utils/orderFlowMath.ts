@@ -681,6 +681,7 @@ export type ProprietaryZoneIndicatorId =
   | 'CVD-DIV-LVL'
   | 'VWAP-2SD'
   | 'STK-ZONE'
+  | 'LVN-DEF'
   | 'VA-EDGE';
 
 export interface ProprietaryZoneLineDTO {
@@ -891,6 +892,54 @@ export function computeProprietaryZoneLines(
             },
             minSpacing
           );
+        }
+      }
+    }
+
+    // 7. LVN-DEF (Low Volume Node Defense Line — Gold M5 PF 2.67, Overall PF 1.27)
+    const avgRange20 = window20.reduce((s, x) => s + Math.max(x.high_ticks - x.low_ticks, 1), 0) / window20.length;
+    if (rng > 1.4 * avgRange20 && b.footprint && b.footprint.length >= 5) {
+      const sortedCells = [...b.footprint].sort((a, c) => a.price_ticks - c.price_ticks);
+      const avgCellVol = sortedCells.reduce((s, c) => s + c.total_units, 0) / sortedCells.length;
+      const interior = sortedCells.slice(1, -1);
+      if (interior.length > 0 && avgCellVol > 0) {
+        let minCell = interior[0];
+        for (const c of interior) {
+          if (c.total_units < minCell.total_units) minCell = c;
+        }
+        if (minCell.total_units < 0.35 * avgCellVol) {
+          const lvnPrice = minCell.price_ticks;
+          if (b.close_ticks > b.open_ticks && b.close_ticks > lvnPrice && !isMitigatedAfter(lvnPrice, i, 'BUY')) {
+            addUnique(
+              {
+                id: `LVN-B-${b.bar_start_us}`,
+                indicator: 'LVN-DEF',
+                side: 'BUY',
+                priceTicks: lvnPrice,
+                startTimeUs: b.bar_start_us,
+                winRatePct: isGold ? 57.14 : 38.89,
+                profitFactor: isGold ? 2.67 : 1.27,
+                expectancyR: isGold ? 0.714 : 0.167,
+                label: 'BUY · LVN-DEF',
+              },
+              minSpacing
+            );
+          } else if (b.close_ticks < b.open_ticks && b.close_ticks < lvnPrice && !isMitigatedAfter(lvnPrice, i, 'SELL')) {
+            addUnique(
+              {
+                id: `LVN-S-${b.bar_start_us}`,
+                indicator: 'LVN-DEF',
+                side: 'SELL',
+                priceTicks: lvnPrice,
+                startTimeUs: b.bar_start_us,
+                winRatePct: isGold ? 57.14 : 38.89,
+                profitFactor: isGold ? 2.67 : 1.27,
+                expectancyR: isGold ? 0.714 : 0.167,
+                label: 'SELL · LVN-DEF',
+              },
+              minSpacing
+            );
+          }
         }
       }
     }

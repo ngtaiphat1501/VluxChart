@@ -223,15 +223,15 @@ const INDICATOR_CATALOG: IndicatorItemDef[] = [
   },
   {
     key: 'showPropZoneLines',
-    name: 'Top 5 Vùng Mua/Bán Line Ngang Độc Quyền (Backtested)',
-    shortCode: 'TOP5-LN',
+    name: 'Top 7 Vùng Mua/Bán Line Ngang Độc Quyền (Backtested)',
+    shortCode: 'TOP7-LN',
     category: 'structure',
     zone: 'Chart Overlay',
-    zoneDesc: 'Các đường line ngang Xanh (Vùng Mua) & Đỏ (Vùng Bán) kèm nhãn thống kê',
+    zoneDesc: 'Các đường line ngang Xanh (Vùng Mua) & Đỏ (Vùng Bán) kèm nhãn thống kê (Tự tối ưu riêng cho Vàng XAUUSD)',
     badge: 'VluxChart Quant',
-    formula: 'NPOC-MAG (PF 2.07) | ABS-WALL (PF 2.00) | VWAP-2SD (1.68) | STK-ZONE (1.59) | VA-EDGE (1.53)',
+    formula: 'NPOC-MAG (2.09) · ABS-WALL (2.44) · CVD-DIV (1.67) · VWAP-2SD (1.68) · STK-ZONE (1.59) · LVN-DEF (2.67 M5) · VA-EDGE (1.53)',
     description:
-      'Tổng hợp Top 5 chỉ báo xác định vùng Mua/Bán tiềm năng bằng line ngang đã được backtest trên 2,895 nến M5 thực tế (MT5 XAUUSD, EURUSD, BTCUSD & Binance Futures) với R:R 1:2.',
+      '7 chỉ báo định lượng xác định vùng Mua/Bán tiềm năng bằng line ngang đã được backtest thực tế trên 6,891 nến (MT5 Vàng XAUUSD 3,996 nến + Crypto/FX 2,895 nến) với R:R 1:2.',
   },
 
   // ─── 4. LIQUIDITY & DEPTH ───

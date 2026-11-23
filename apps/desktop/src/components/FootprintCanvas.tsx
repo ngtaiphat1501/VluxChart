@@ -4457,9 +4457,9 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
               fontWeight: 800,
               cursor: 'pointer',
             }}
-            title="Top 5 Vùng Mua/Bán Line Ngang Độc Quyền (Backtested PF 1.53–2.07) (Click để bật/tắt)"
+            title="Top 7 Vùng Mua/Bán Line Ngang Độc Quyền (Backtested trên Vàng & Crypto) (Click để bật/tắt)"
           >
-            TOP5 ZONES
+            TOP7 ZONES
           </button>
         </div>
 
