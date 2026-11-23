@@ -1,20 +1,20 @@
 {
   "benchmark": "desktop_canvas_culling_and_frame_budget",
   "status": "PASS",
-  "timestamp": "2026-11-19T11:52:24.054Z",
+  "timestamp": "2026-11-22T09:12:30.497Z",
   "metrics": {
     "total_bars_in_memory": 1000,
     "cells_per_bar": 40,
     "simulated_frames": 500,
     "avg_visible_bars": 14.014,
     "culling_efficiency_pct": 98.5986,
-    "avg_frame_ms": 0.016790000000000093,
-    "p50_frame_ms": 0.0018999999999991246,
-    "p95_frame_ms": 0.06510000000000105,
-    "p99_frame_ms": 0.12749999999999773,
-    "max_frame_ms": 1.1777000000000015,
+    "avg_frame_ms": 0.02649020000000064,
+    "p50_frame_ms": 0.00190000000000623,
+    "p95_frame_ms": 0.13260000000002492,
+    "p99_frame_ms": 0.2476999999999805,
+    "max_frame_ms": 2.9754000000000076,
     "target_frame_budget_ms": 16.666,
     "target_fps": 60,
-    "theoretical_fps": 59559.2614651575
+    "theoretical_fps": 37749.809363461805
   }
 }
