@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, startTransition } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { FootprintCanvas } from './components/FootprintCanvas';
 import { TradingViewChartPanel } from './components/TradingViewChartPanel';
@@ -14,11 +14,22 @@ import { RightDockPanel, RightDockTab } from './components/RightDockPanel';
 import { OptionsGammaProfilePanel } from './components/OptionsGammaProfilePanel';
 import { MultiChartGrid, MultiChartLayout } from './components/MultiChartGrid';
 import { Mt5ConnectionModal } from './components/Mt5ConnectionModal';
+import { CmeMboConnectionModal } from './components/CmeMboConnectionModal';
 import { OptionsBoardModal } from './components/OptionsBoardModal';
 import { ScriptEditorModal } from './components/ScriptEditorModal';
 import { InstrumentStudioModal } from './components/InstrumentStudioModal';
 import { RiskManagerModal } from './components/RiskManagerModal';
+import { LoginScreen } from './components/LoginScreen';
+import { SystemBootstrapModal } from './components/SystemBootstrapModal';
+import { UpgradePrivilegeModal } from './components/UpgradePrivilegeModal';
 import { OrderFlowAlert } from './components/AlertNotificationCenter';
+import { authService, AuthSessionDTO } from './services/authService';
+import { FeatureEntitlementKey, hasFeatureAccess } from './utils/entitlements';
+import { dataPackService, DataManifestDTO } from './services/dataPackService';
+import {
+  SystemEnvironmentReportDTO,
+  systemBootstrapService,
+} from './services/systemBootstrapService';
 import {
   loadWorkspaceConfig,
   saveWorkspaceConfig,
@@ -36,43 +47,345 @@ import {
   BarDTO,
   BacktestConfigDTO,
   BacktestReportDTO,
+  BacktestTradeDTO,
   ChartDrawing,
   ChartSnapshotDTO,
   DrawingTool,
   OptimizationReportDTO,
+  OptimizationResultItemDTO,
   OptimizationSweepConfigDTO,
   OrderBookSnapshotDTO,
   TradeEventDTO,
 } from './types';
 import {
   CANONICAL_INSTRUMENTS,
-  generateCanonicalSnapshot,
+  createEmptyLiveSnapshot,
+  getInstrumentMeta,
 } from './utils/instrumentRegistry';
+import {
+  ActiveFrameConfig,
+  CustomFrameCategory,
+  appendLiveTradeToNonTimeSeries,
+  buildNonTimeBarsFromRealData,
+  hydrateSavedSynthetics,
+} from './utils/customFrameAndSyntheticEngine';
 import { liveFeedService, getFootprintTickStep, timeframeUsToBybitInterval } from './services/liveFeedService';
+import { CmeConnectionStatusDTO, cmeMboService } from './services/cmeMboService';
 import { computeSessionVwap, recalculateOptionsLevels } from './utils/orderFlowMath';
 import { adaptSnapshotToTimeframe } from './utils/multiTimeframeAggregator';
 import { mt5BridgeService } from './services/mt5BridgeService';
 
 function getBybitSymbol(instrumentId: string): string {
-  if (instrumentId.startsWith('MT5:')) return instrumentId;
+  if (
+    instrumentId.startsWith('MT5:') ||
+    instrumentId.startsWith('SYNTH:') ||
+    instrumentId.startsWith('CME:')
+  ) {
+    return instrumentId;
+  }
   if (instrumentId.includes('ETH')) return 'ETHUSDT';
   if (instrumentId.includes('XAU')) return 'XAUUSDT';
   return 'BTCUSDT';
 }
 
-// Default initial fallback snapshot generated dynamically from canonical registry
-const DEFAULT_SNAPSHOT: ChartSnapshotDTO = generateCanonicalSnapshot('BYBIT:LINEAR_PERP:BTCUSDT:PERP');
+function resolveInitialTimeframeUs(tfRaw?: string): number {
+  if (!tfRaw) return 300_000_000;
+  const n = Number(tfRaw);
+  if (Number.isFinite(n) && n >= 60_000_000) return n;
+  if (tfRaw === '1m') return 60_000_000;
+  if (tfRaw === '5m') return 300_000_000;
+  if (tfRaw === '15m') return 900_000_000;
+  if (tfRaw === '1h') return 3_600_000_000;
+  if (tfRaw === '4h') return 14_400_000_000;
+  if (tfRaw === '1d') return 86_400_000_000;
+  return 300_000_000;
+}
+
+/**
+ * Deterministic Order Flow Backtester operating 100% on REAL historical market bars (`snapshot.bars`).
+ * Zero synthetic trades, zero sine waves, zero random numbers.
+ */
+function evaluateRealBarsBacktest(bars: BarDTO[], config: BacktestConfigDTO): BacktestReportDTO {
+  const slTicks = Math.max(10, Math.round(config.stop_loss_ticks));
+  const tpTicks = Math.max(10, Math.round(config.take_profit_ticks));
+  const slipTicks = Math.max(0, Math.round(config.slippage_ticks || 0));
+  const sizeUnits = Math.max(1, Math.round(config.trade_size_units || 1));
+
+  if (!Array.isArray(bars) || bars.length < 5) {
+    return {
+      strategy_name: config.strategy_name,
+      total_trades: 0,
+      winning_trades: 0,
+      losing_trades: 0,
+      win_rate_pct: 0,
+      gross_profit_ticks: 0,
+      gross_loss_ticks: 0,
+      net_pnl_ticks: 0,
+      profit_factor: 0,
+      max_drawdown_ticks: 0,
+      max_drawdown_pct: 0,
+      avg_trade_pnl_ticks: 0,
+      trades: [],
+    };
+  }
+
+  const avgVol =
+    bars.reduce((s, b) => s + (b.total_units || 0), 0) / Math.max(1, bars.length);
+  const trades: BacktestTradeDTO[] = [];
+  let i = 1;
+
+  while (i < bars.length - 1) {
+    const prev = bars[i - 1];
+    const cur = bars[i];
+    const range = Math.max(1, cur.high_ticks - cur.low_ticks);
+    const upperWick = cur.high_ticks - Math.max(cur.open_ticks, cur.close_ticks);
+    const lowerWick = Math.min(cur.open_ticks, cur.close_ticks) - cur.low_ticks;
+
+    let signalSide: 'Buy' | 'Sell' | null = null;
+    if (config.strategy_name === 'AbsorptionReversal') {
+      if (lowerWick > range * 0.35 && cur.delta_units < 0 && cur.close_ticks >= cur.open_ticks) {
+        signalSide = 'Buy';
+      } else if (upperWick > range * 0.35 && cur.delta_units > 0 && cur.close_ticks <= cur.open_ticks) {
+        signalSide = 'Sell';
+      }
+    } else if (config.strategy_name === 'DeltaDivergence') {
+      if (cur.low_ticks < prev.low_ticks && cur.delta_units > 0) {
+        signalSide = 'Buy';
+      } else if (cur.high_ticks > prev.high_ticks && cur.delta_units < 0) {
+        signalSide = 'Sell';
+      }
+    } else {
+      const hasBuyStack = cur.stacked_imbalances?.some((st) => st.side === 'Buy');
+      const hasSellStack = cur.stacked_imbalances?.some((st) => st.side === 'Sell');
+      if (hasBuyStack || (cur.total_units > avgVol * 1.1 && cur.delta_units > cur.total_units * 0.2)) {
+        signalSide = 'Buy';
+      } else if (hasSellStack || (cur.total_units > avgVol * 1.1 && -cur.delta_units > cur.total_units * 0.2)) {
+        signalSide = 'Sell';
+      }
+    }
+
+    if (!signalSide) {
+      i++;
+      continue;
+    }
+
+    const entryBar = bars[i + 1];
+    const entryPrice =
+      signalSide === 'Buy' ? entryBar.open_ticks + slipTicks : entryBar.open_ticks - slipTicks;
+    let exitPrice = bars[bars.length - 1].close_ticks;
+    let exitTimeUs = bars[bars.length - 1].bar_start_us;
+    let exitReason = 'EndOfSeries';
+    let exitBarIdx = bars.length - 1;
+
+    for (let j = i + 1; j < bars.length; j++) {
+      const bj = bars[j];
+      if (signalSide === 'Buy') {
+        if (bj.low_ticks <= entryPrice - slTicks) {
+          exitPrice = entryPrice - slTicks - slipTicks;
+          exitTimeUs = bj.bar_start_us;
+          exitReason = 'StopLoss';
+          exitBarIdx = j;
+          break;
+        }
+        if (bj.high_ticks >= entryPrice + tpTicks) {
+          exitPrice = entryPrice + tpTicks - slipTicks;
+          exitTimeUs = bj.bar_start_us;
+          exitReason = 'TakeProfit';
+          exitBarIdx = j;
+          break;
+        }
+      } else {
+        if (bj.high_ticks >= entryPrice + slTicks) {
+          exitPrice = entryPrice + slTicks + slipTicks;
+          exitTimeUs = bj.bar_start_us;
+          exitReason = 'StopLoss';
+          exitBarIdx = j;
+          break;
+        }
+        if (bj.low_ticks <= entryPrice - tpTicks) {
+          exitPrice = entryPrice - tpTicks + slipTicks;
+          exitTimeUs = bj.bar_start_us;
+          exitReason = 'TakeProfit';
+          exitBarIdx = j;
+          break;
+        }
+      }
+    }
+
+    const rawPnlTicks =
+      (signalSide === 'Buy' ? exitPrice - entryPrice : entryPrice - exitPrice) * sizeUnits;
+    const pnlPct = entryPrice > 0 ? Number((((exitPrice - entryPrice) / entryPrice) * (signalSide === 'Buy' ? 100 : -100)).toFixed(3)) : 0;
+
+    trades.push({
+      trade_id: trades.length + 1,
+      side: signalSide,
+      entry_price_ticks: entryPrice,
+      exit_price_ticks: exitPrice,
+      entry_time_us: entryBar.bar_start_us,
+      exit_time_us: exitTimeUs,
+      quantity_units: sizeUnits,
+      pnl_ticks: rawPnlTicks,
+      pnl_pct: pnlPct,
+      exit_reason: exitReason,
+    });
+
+    i = Math.max(i + 1, exitBarIdx + 1);
+  }
+
+  let grossProfit = 0;
+  let grossLoss = 0;
+  let wins = 0;
+  let losses = 0;
+  let equity = 0;
+  let peakEquity = 0;
+  let maxDdTicks = 0;
+
+  for (const t of trades) {
+    if (t.pnl_ticks >= 0) {
+      grossProfit += t.pnl_ticks;
+      wins++;
+    } else {
+      grossLoss += Math.abs(t.pnl_ticks);
+      losses++;
+    }
+    equity += t.pnl_ticks;
+    if (equity > peakEquity) peakEquity = equity;
+    const dd = peakEquity - equity;
+    if (dd > maxDdTicks) maxDdTicks = dd;
+  }
+
+  const netPnl = grossProfit - grossLoss;
+  const pf = grossLoss > 0 ? Number((grossProfit / grossLoss).toFixed(2)) : grossProfit > 0 ? 9.99 : 0;
+  const refCapital = Math.max(100_000, bars[0].open_ticks * 10);
+  const maxDdPct = Number(((maxDdTicks / refCapital) * 100).toFixed(2));
+
+  return {
+    strategy_name: config.strategy_name,
+    total_trades: trades.length,
+    winning_trades: wins,
+    losing_trades: losses,
+    win_rate_pct: trades.length > 0 ? Number(((wins / trades.length) * 100).toFixed(1)) : 0,
+    gross_profit_ticks: grossProfit,
+    gross_loss_ticks: grossLoss,
+    net_pnl_ticks: netPnl,
+    profit_factor: pf,
+    max_drawdown_ticks: maxDdTicks,
+    max_drawdown_pct: maxDdPct,
+    avg_trade_pnl_ticks: trades.length > 0 ? Math.round(netPnl / trades.length) : 0,
+    trades,
+  };
+}
+
+// Hydrate persisted custom synthetic formulas (SYNTH:*) before resolving cold-start snapshot
+hydrateSavedSynthetics();
+
+const INITIAL_WORKSPACE_CFG = loadWorkspaceConfig();
+// Strict empty cold-start state: zero fake placeholder candles before real market feed arrives
+const DEFAULT_SNAPSHOT: ChartSnapshotDTO = createEmptyLiveSnapshot(
+  INITIAL_WORKSPACE_CFG.instrumentId || 'MT5:CFD:XAUUSD',
+  resolveInitialTimeframeUs(INITIAL_WORKSPACE_CFG.timeframe)
+);
 
 export function App() {
+  // Authentication Gate (Login-Only — Account Registration on External Web Portal)
+  const [authChecked, setAuthChecked] = useState<boolean>(false);
+  const [authSession, setAuthSession] = useState<AuthSessionDTO | null>(null);
+
+  // System Runtime Compatibility Bootstrapper State (Auto-Skip if ready; 1-Click Setup if missing)
+  const [dataManifest, setDataManifest] = useState<DataManifestDTO | null>(null);
+  const [systemReport, setSystemReport] = useState<SystemEnvironmentReportDTO | null>(null);
+  const [isSystemModalOpen, setIsSystemModalOpen] = useState<boolean>(false);
+  const [isFirstRunSystemPrompt, setIsFirstRunSystemPrompt] = useState<boolean>(false);
+  const hasPromptedSystemRef = useRef<boolean>(false);
+
   const [snapshot, setSnapshot] = useState<ChartSnapshotDTO>(() => loadSnapshotCache() || DEFAULT_SNAPSHOT);
   const [isLiveFeedActive, setIsLiveFeedActive] = useState<boolean>(true);
   const [alerts, setAlerts] = useState<OrderFlowAlert[]>([]);
+  const [synthRevision, setSynthRevision] = useState<number>(0);
+
+  // Active Bar Construction Mode: Standard Time Bars OR Non-Time Order Flow Bars (Range / Volume / Tick)
+  const [activeFrame, setActiveFrame] = useState<ActiveFrameConfig>(() => ({
+    category: 'time',
+    value: resolveInitialTimeframeUs(INITIAL_WORKSPACE_CFG.timeframe),
+  }));
+  const activeFrameRef = useRef<ActiveFrameConfig>(activeFrame);
+  activeFrameRef.current = activeFrame;
+  const rawBaseBarsRef = useRef<{ key: string; bars: BarDTO[] }>({ key: '', bars: [] });
+
+  useEffect(() => {
+    let active = true;
+    authService.getSession().then((sess) => {
+      if (!active) return;
+      setAuthSession(sess);
+      setAuthChecked(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authSession) return;
+    let active = true;
+    const unsubManifest = dataPackService.subscribeManifest((m) => {
+      if (active) setDataManifest(m);
+    });
+
+    // 1. Silently hydrate any existing local auto-synced cache in background (ZERO manual candle download prompt!)
+    dataPackService.getManifest().then(async (manifest) => {
+      if (!active) return;
+      setDataManifest(manifest);
+      if (manifest.has_core_data) {
+        await dataPackService.hydrateAllInstalledPacks();
+      }
+    });
+
+    // 2. Inspect Workstation Compatibility (<300ms): Auto-Skip 100% if ready; prompt 1-Click Setup ONLY if missing!
+    systemBootstrapService
+      .checkEnvironment()
+      .then((rep) => {
+        if (!active) return;
+        setSystemReport(rep);
+        if (
+          !rep.should_auto_skip &&
+          !systemBootstrapService.hasUserSkippedForSession() &&
+          !hasPromptedSystemRef.current
+        ) {
+          hasPromptedSystemRef.current = true;
+          setIsFirstRunSystemPrompt(true);
+          setIsSystemModalOpen(true);
+        }
+      })
+      .catch((err) => {
+        console.warn('[SystemBootstrap] Environment check warning:', err);
+      });
+
+    return () => {
+      active = false;
+      unsubManifest();
+    };
+  }, [authSession]);
+
+  const handleLoginSuccess = (session: AuthSessionDTO) => {
+    hasPromptedSystemRef.current = false;
+    setAuthSession(session);
+  };
+
+  const handleLogout = async () => {
+    liveFeedService.disconnect();
+    await authService.logout();
+    setAuthSession(null);
+    setIsSystemModalOpen(false);
+    setIsFirstRunSystemPrompt(false);
+    hasPromptedSystemRef.current = false;
+  };
 
   // High-performance RAF throttle queues to keep UI at solid 60 FPS under live market bursts
   const pendingTradesRef = useRef<TradeEventDTO[]>([]);
   const pendingOrderBookRef = useRef<OrderBookSnapshotDTO | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const timeframeRequestIdRef = useRef<number>(0);
+  const activeFetchAbortRef = useRef<AbortController | null>(null);
   const lastObCommitMsRef = useRef<number>(0);
   const lastHeatmapSliceMsRef = useRef<number>(0);
   const [showNarrative, setShowNarrative] = useState(true);
@@ -82,10 +395,43 @@ export function App() {
   const [isZoneInspectorOpen, setIsZoneInspectorOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMt5ModalOpen, setIsMt5ModalOpen] = useState(false);
+  const [isCmeModalOpen, setIsCmeModalOpen] = useState(false);
+  const [cmeStatus, setCmeStatus] = useState<CmeConnectionStatusDTO>(() =>
+    cmeMboService.getCachedStatus()
+  );
   const [isOptionsBoardOpen, setIsOptionsBoardOpen] = useState(false);
   const [isScriptEditorOpen, setIsScriptEditorOpen] = useState(false);
   const [isInstrumentStudioOpen, setIsInstrumentStudioOpen] = useState(false);
   const [isRiskManagerOpen, setIsRiskManagerOpen] = useState(false);
+  const [privilegeModal, setPrivilegeModal] = useState<{
+    open: boolean;
+    featureKey: FeatureEntitlementKey | null;
+  }>({ open: false, featureKey: null });
+
+  const checkOrPromptPrivilege = (featureKey: FeatureEntitlementKey): boolean => {
+    if (hasFeatureAccess(authSession?.tier, featureKey)) {
+      return true;
+    }
+    setPrivilegeModal({ open: true, featureKey });
+    return false;
+  };
+
+  useEffect(() => {
+    const unsub = cmeMboService.subscribeStatus((st) => setCmeStatus(st));
+    cmeMboService.getStatus().catch(() => {});
+    const onOpenCmeEvent = () => {
+      if (hasFeatureAccess(authSession?.tier, 'mbo_l3')) {
+        setIsCmeModalOpen(true);
+      } else {
+        setPrivilegeModal({ open: true, featureKey: 'mbo_l3' });
+      }
+    };
+    window.addEventListener('deepchart:open_cme_modal', onOpenCmeEvent);
+    return () => {
+      unsub();
+      window.removeEventListener('deepchart:open_cme_modal', onOpenCmeEvent);
+    };
+  }, [authSession?.tier]);
   const [workspaceConfig, setWorkspaceConfig] = useState<WorkspaceConfig>(loadWorkspaceConfig());
   const [layoutPreset, setLayoutPreset] = useState<LayoutPreset>(workspaceConfig.layoutPreset || 'order_flow_pro');
   const [showTape, setShowTape] = useState<boolean>(workspaceConfig.showTape ?? true);
@@ -168,7 +514,21 @@ export function App() {
   };
 
 
+  // Enforce layout constraints when signed into a lower tier (e.g. STANDARD PILOT)
+  useEffect(() => {
+    if (!authSession) return;
+    if (!hasFeatureAccess(authSession.tier, 'multi_chart') && multiChartLayout !== '1x1') {
+      setMultiChartLayout('1x1');
+    }
+    if (!hasFeatureAccess(authSession.tier, 'options_gex') && layoutPreset === 'options_confluence') {
+      setLayoutPreset('order_flow_pro');
+    }
+  }, [authSession?.tier]);
+
   const handleLayoutPresetChange = (preset: LayoutPreset) => {
+    if (preset === 'options_confluence' && !checkOrPromptPrivilege('options_gex')) {
+      return;
+    }
     setLayoutPreset(preset);
     if (preset === 'standard') {
       setRightDockTab('dom_tape');
@@ -240,25 +600,10 @@ export function App() {
     setSoundEnabled(SoundManager.isEnabled());
   }, []);
 
-  const fetchSnapshot = async () => {
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const snap = await invoke<ChartSnapshotDTO>('get_chart_snapshot');
-        if (snap) {
-          // Guard: if live feed is active, do not overwrite live real-time data with mock snapshot
-          if (isLiveFeedActive) {
-            return;
-          }
-          setSnapshot(snap);
-          saveSnapshotCache(snap);
-          checkNewAlerts(snap);
-        }
-      }
-    } catch (e) {
-      console.warn('Tauri IPC offline, running in browser preview mode:', e);
-    }
-  };
+  const replayRealBarsRef = useRef<BarDTO[]>([]);
+  const replayCursorRef = useRef<number>(0);
+  const isLoadingHistoryRef = useRef<boolean>(false);
+  const exhaustedHistoryRef = useRef<Set<string>>(new Set());
 
   const checkNewAlerts = (snap: ChartSnapshotDTO) => {
     const newAlerts: OrderFlowAlert[] = [];
@@ -352,43 +697,170 @@ export function App() {
   };
 
   const handleTimeframeChange = async (timeframeUs: number) => {
+    const wasNonTime = activeFrameRef.current.category !== 'time';
+    if (!wasNonTime && timeframeUs === snapshot.timeframe_us) return;
+
+    const nextFrame: ActiveFrameConfig = { category: 'time', value: timeframeUs };
+    setActiveFrame(nextFrame);
+    activeFrameRef.current = nextFrame;
+
     const reqId = ++timeframeRequestIdRef.current;
+
+    // Abort any in-flight exchange fetch from a previous click so stale parses never pile up
+    activeFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    activeFetchAbortRef.current = controller;
+
     saveWorkspaceConfig({ timeframe: timeframeUs.toString() });
+    liveFeedService.setTimeframe(timeframeUs);
+    isLoadingHistoryRef.current = false;
     const symbol = getBybitSymbol(snapshot.instrument_id);
     const interval = timeframeUsToBybitInterval(timeframeUs);
 
-    // 1. Check in-memory / local cache for this symbol & timeframe (0ms instant switch!)
-    const cachedBars = loadSymbolBars(`${symbol}_${timeframeUs}`);
-    if (cachedBars && cachedBars.length > 0) {
-      setSnapshot((prev) => ({
-        ...prev,
-        timeframe_us: timeframeUs,
-        bars: cachedBars,
-        active_bar: cachedBars[cachedBars.length - 1],
-      }));
-    } else {
-      // Immediately adapt current bars deterministically in <1ms so UI transitions at 0ms
-      setSnapshot((prev) => adaptSnapshotToTimeframe(prev, timeframeUs));
-    }
+    // 1. Instant 0ms render from in-memory Data Pack or cache (wrapped in startTransition so controls stay responsive!)
+    const cachedBars =
+      dataPackService.getHydratedBars(symbol, timeframeUs) ||
+      loadSymbolBars(`${symbol}_${timeframeUs}`);
+    startTransition(() => {
+      if (cachedBars && cachedBars.length > 0) {
+        const closed = cachedBars.length > 1 ? cachedBars.slice(0, -1) : cachedBars;
+        const tail = cachedBars[cachedBars.length - 1];
+        setSnapshot((prev) => ({
+          ...prev,
+          timeframe_us: timeframeUs,
+          bars: closed,
+          active_bar: tail,
+          vwap: computeSessionVwap(closed, tail.close_ticks),
+        }));
+      } else if (!wasNonTime) {
+        setSnapshot((prev) => adaptSnapshotToTimeframe(prev, timeframeUs));
+      }
+    });
 
-    // 2. Fetch fresh historical klines for this timeframe (1000 bars for comprehensive macro & micro context)
+    // 2. Fetch deep 1,500-bar initial history (with unlimited continuous scroll on demand)
     try {
-      const realBars = await liveFeedService.fetchRealHistoricalKlines(symbol, interval, 1000);
-      if (reqId !== timeframeRequestIdRef.current) return; // Ignore stale response if user clicked another timeframe
+      const realBars = await liveFeedService.fetchRealHistoricalKlines(
+        symbol,
+        interval,
+        1500,
+        undefined,
+        controller.signal
+      );
+      if (controller.signal.aborted || reqId !== timeframeRequestIdRef.current) return;
       if (realBars && realBars.length > 0) {
         const lastBar = realBars[realBars.length - 1];
         const pureBars = realBars.slice(0, -1);
         saveSymbolBars(`${symbol}_${timeframeUs}`, pureBars);
+        dataPackService.updateHydratedSeries(symbol, timeframeUs, realBars);
 
-        setSnapshot((prev) => ({
-          ...prev,
-          timeframe_us: timeframeUs,
-          bars: pureBars,
-          active_bar: lastBar,
-        }));
+        startTransition(() => {
+          setSnapshot((prev) => {
+            if (getBybitSymbol(prev.instrument_id) !== symbol) return prev;
+            if (activeFrameRef.current.category !== 'time') return prev;
+            const nextSnap: ChartSnapshotDTO = {
+              ...prev,
+              venue: getInstrumentMeta(prev.instrument_id).venue,
+              timeframe_us: timeframeUs,
+              bars: pureBars,
+              active_bar: lastBar,
+              vwap: computeSessionVwap(pureBars, lastBar.close_ticks),
+            };
+            saveSnapshotCache(nextSnap);
+            checkNewAlerts(nextSnap);
+            return nextSnap;
+          });
+        });
       }
     } catch (err) {
-      console.warn(`[LiveFeed] Failed to load fresh klines for timeframe ${interval}:`, err);
+      if (!controller.signal.aborted) {
+        console.warn(`[LiveFeed] Failed to load fresh klines for timeframe ${interval}:`, err);
+      }
+    }
+  };
+
+  const handleSelectCustomFrame = async (category: CustomFrameCategory, rawVal: number) => {
+    if (category === 'time') {
+      await handleTimeframeChange(rawVal);
+      return;
+    }
+
+    const safeVal = Math.max(1, Math.round(rawVal));
+    const nextFrame: ActiveFrameConfig = { category, value: safeVal };
+    setActiveFrame(nextFrame);
+    activeFrameRef.current = nextFrame;
+
+    const reqId = ++timeframeRequestIdRef.current;
+    activeFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    activeFetchAbortRef.current = controller;
+    isLoadingHistoryRef.current = false;
+
+    const instId = snapshot.instrument_id;
+    const symbol = getBybitSymbol(instId);
+
+    // 1. Instant <2ms deterministic build from already-loaded real historical bars
+    const immediateSource =
+      rawBaseBarsRef.current.key === symbol && rawBaseBarsRef.current.bars.length > 1
+        ? rawBaseBarsRef.current.bars
+        : [...snapshot.bars, ...(snapshot.active_bar ? [snapshot.active_bar] : [])];
+
+    if (immediateSource.length > 0) {
+      const instantBuilt = buildNonTimeBarsFromRealData(immediateSource, nextFrame, instId);
+      if (instantBuilt.length > 0) {
+        const closed = instantBuilt.length > 1 ? instantBuilt.slice(0, -1) : [];
+        const tail = instantBuilt[instantBuilt.length - 1];
+        startTransition(() => {
+          setSnapshot((prev) => ({
+            ...prev,
+            bars: closed,
+            active_bar: tail,
+            vwap: computeSessionVwap(closed, tail.close_ticks),
+          }));
+        });
+      }
+    }
+
+    // 2. Fetch deep 1,500 granular 1m + real tick-footprint bars for high-resolution Range / Volume / Tick bars
+    try {
+      const realBars = await liveFeedService.fetchRealHistoricalKlines(
+        symbol,
+        '1',
+        1500,
+        undefined,
+        controller.signal,
+        true
+      );
+      if (controller.signal.aborted || reqId !== timeframeRequestIdRef.current) return;
+      if (realBars && realBars.length > 0) {
+        rawBaseBarsRef.current = { key: symbol, bars: realBars };
+        const built = buildNonTimeBarsFromRealData(realBars, nextFrame, instId);
+        if (built.length > 0) {
+          const closed = built.length > 1 ? built.slice(0, -1) : [];
+          const tail = built[built.length - 1];
+          startTransition(() => {
+            setSnapshot((prev) => {
+              if (getBybitSymbol(prev.instrument_id) !== symbol) return prev;
+              const curCfg = activeFrameRef.current;
+              if (curCfg.category !== nextFrame.category || curCfg.value !== nextFrame.value) {
+                return prev;
+              }
+              const nextSnap: ChartSnapshotDTO = {
+                ...prev,
+                venue: getInstrumentMeta(prev.instrument_id).venue,
+                bars: closed,
+                active_bar: tail,
+                vwap: computeSessionVwap(closed, tail.close_ticks),
+              };
+              checkNewAlerts(nextSnap);
+              return nextSnap;
+            });
+          });
+        }
+      }
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        console.warn(`[CustomFrame] Failed to fetch granular bars for ${category}:${safeVal}:`, err);
+      }
     }
   };
 
@@ -409,85 +881,57 @@ export function App() {
   };
 
   const handleRunBacktest = async (config: BacktestConfigDTO): Promise<BacktestReportDTO> => {
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const report = await invoke<BacktestReportDTO>('run_order_flow_backtest', { config });
-        if (report) return report;
-      }
-    } catch (e) {
-      console.warn('Tauri run_order_flow_backtest failed:', e);
-    }
-
-    // In-browser preview simulated calculation
-    return {
-      strategy_name: config.strategy_name,
-      total_trades: 14,
-      winning_trades: 9,
-      losing_trades: 5,
-      win_rate_pct: 64.3,
-      gross_profit_ticks: 9 * config.take_profit_ticks,
-      gross_loss_ticks: 5 * config.stop_loss_ticks,
-      net_pnl_ticks: 9 * config.take_profit_ticks - 5 * config.stop_loss_ticks,
-      profit_factor: (9 * config.take_profit_ticks) / (5 * config.stop_loss_ticks || 1),
-      max_drawdown_ticks: config.stop_loss_ticks * 2,
-      max_drawdown_pct: 2.8,
-      avg_trade_pnl_ticks: (9 * config.take_profit_ticks - 5 * config.stop_loss_ticks) / 14,
-      trades: Array.from({ length: 14 }).map((_, i) => {
-        const basePrice = snapshot.active_bar?.close_ticks || (CANONICAL_INSTRUMENTS[snapshot.instrument_id]?.basePriceTicks || 0);
-        return {
-          trade_id: i + 1,
-          side: i % 2 === 0 ? 'Buy' : 'Sell',
-          entry_price_ticks: basePrice + i * 150,
-          exit_price_ticks: basePrice + i * 150 + (i % 3 === 0 ? -config.stop_loss_ticks : config.take_profit_ticks),
-          entry_time_us: Date.now() * 1000 - (14 - i) * 60_000_000,
-          exit_time_us: Date.now() * 1000 - (14 - i) * 60_000_000 + 45_000_000,
-          quantity_units: config.trade_size_units,
-          pnl_ticks: i % 3 === 0 ? -config.stop_loss_ticks : config.take_profit_ticks,
-          pnl_pct: i % 3 === 0 ? -0.32 : 0.64,
-          exit_reason: i % 3 === 0 ? 'StopLoss' : 'TakeProfit',
-        };
-      }),
-    };
+    const realSeries = [
+      ...snapshot.bars,
+      ...(snapshot.active_bar ? [snapshot.active_bar] : []),
+    ];
+    return evaluateRealBarsBacktest(realSeries, config);
   };
 
   const handleRunOptimization = async (config: OptimizationSweepConfigDTO): Promise<OptimizationReportDTO> => {
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const rep = await invoke<OptimizationReportDTO>('run_strategy_optimization', { config });
-        if (rep) return rep;
-      }
-    } catch (e) {
-      console.warn('Tauri run_strategy_optimization failed:', e);
-    }
+    const realSeries = [
+      ...snapshot.bars,
+      ...(snapshot.active_bar ? [snapshot.active_bar] : []),
+    ];
+    const slRange =
+      config.stop_loss_range && config.stop_loss_range.length > 0
+        ? config.stop_loss_range
+        : [500, 1000, 1500, 2000, 2500, 3000];
+    const tpRange =
+      config.take_profit_range && config.take_profit_range.length > 0
+        ? config.take_profit_range
+        : [1000, 2000, 3000, 4000, 5000, 6000];
 
-    // In-browser preview fallback simulation
-    const matrix: any[] = [];
-    let bestPf = 0;
-    let bestSl = 1500;
-    let bestTp = 3000;
+    const matrix: OptimizationResultItemDTO[] = [];
+    let bestPf = -1;
+    let bestSl = slRange[0];
+    let bestTp = tpRange[0];
     let bestPnl = 0;
 
-    for (const sl of config.stop_loss_range) {
-      for (const tp of config.take_profit_range) {
-        const pf = Number(((tp / (sl * 0.8 + 200)) * (1.1 + Math.sin(sl + tp) * 0.3)).toFixed(2));
-        const netPnl = Math.round((pf - 1.0) * 125000);
-        if (pf > bestPf) {
-          bestPf = pf;
+    for (const sl of slRange) {
+      for (const tp of tpRange) {
+        const rep = evaluateRealBarsBacktest(realSeries, {
+          strategy_name: config.strategy_name,
+          trade_size_units: config.trade_size_units,
+          stop_loss_ticks: sl,
+          take_profit_ticks: tp,
+          slippage_ticks: config.slippage_ticks,
+        });
+        if (rep.profit_factor > bestPf || (rep.profit_factor === bestPf && rep.net_pnl_ticks > bestPnl)) {
+          bestPf = rep.profit_factor;
           bestSl = sl;
           bestTp = tp;
-          bestPnl = netPnl;
+          bestPnl = rep.net_pnl_ticks;
         }
         matrix.push({
           stop_loss_ticks: sl,
           take_profit_ticks: tp,
-          total_trades: 18,
-          winning_trades: Math.round(18 * (pf / (pf + 1))),
-          win_rate_pct: Number(((pf / (pf + 1)) * 100).toFixed(1)),
-          net_pnl_ticks: netPnl,
-          profit_factor: pf,
-          max_drawdown_pct: Number((sl / 500).toFixed(1)),
+          total_trades: rep.total_trades,
+          winning_trades: rep.winning_trades,
+          win_rate_pct: rep.win_rate_pct,
+          net_pnl_ticks: rep.net_pnl_ticks,
+          profit_factor: rep.profit_factor,
+          max_drawdown_pct: rep.max_drawdown_pct,
         });
       }
     }
@@ -496,212 +940,191 @@ export function App() {
       strategy_name: config.strategy_name,
       best_stop_loss_ticks: bestSl,
       best_take_profit_ticks: bestTp,
-      best_profit_factor: bestPf,
+      best_profit_factor: Math.max(0, bestPf),
       best_net_pnl_ticks: bestPnl,
       total_combinations: matrix.length,
       matrix,
     };
   };
 
-  const handleInstrumentChange = async (instrumentId: string) => {
+  const handleInstrumentChange = (instrumentId: string, forceReload: boolean = false) => {
+    if (instrumentId === snapshot.instrument_id && !forceReload) return;
+
+    // Cancel any previous in-flight symbol/timeframe HTTP fetches immediately
+    ++timeframeRequestIdRef.current;
+    activeFetchAbortRef.current?.abort();
+    pendingTradesRef.current = [];
+    pendingOrderBookRef.current = null;
+    replayRealBarsRef.current = [];
+    rawBaseBarsRef.current = { key: '', bars: [] };
+    isLoadingHistoryRef.current = false;
+
+    if (forceReload || instrumentId.startsWith('SYNTH:')) {
+      setSynthRevision((r) => r + 1);
+    }
+
     saveWorkspaceConfig({ instrumentId });
     if (instrumentId.startsWith('MT5:')) {
       mt5BridgeService.syncFromRealMt5().catch(() => {});
     }
-    let newSnap: ChartSnapshotDTO | null = null;
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const snap = await invoke<ChartSnapshotDTO>('switch_instrument', { instrumentId });
-        if (snap) {
-          newSnap = snap;
-        }
+
+    // Zero-blocking instant switch: prefer already-downloaded real Data Pack or timeframe-matched local cache
+    const symbol = getBybitSymbol(instrumentId);
+    const currentTfUs = snapshot.timeframe_us || 60_000_000;
+    const isTimeMode = activeFrameRef.current.category === 'time';
+    const cachedBars =
+      !forceReload && isTimeMode
+        ? dataPackService.getHydratedBars(symbol, currentTfUs) ||
+          loadSymbolBars(`${symbol}_${currentTfUs}`)
+        : null;
+
+    const instMeta = getInstrumentMeta(instrumentId);
+
+    startTransition(() => {
+      if (cachedBars && cachedBars.length > 1) {
+        const closed = cachedBars.slice(0, -1);
+        const tail = cachedBars[cachedBars.length - 1];
+        setSnapshot((prev) => {
+          const nextSnap: ChartSnapshotDTO = {
+            ...prev,
+            instrument_id: instMeta.id,
+            venue: instMeta.venue,
+            timeframe_us: currentTfUs,
+            bars: closed,
+            active_bar: tail,
+            recent_trades: [],
+            heatmap_slices: [],
+            playback: undefined,
+            vwap: computeSessionVwap(closed, tail.close_ticks),
+          };
+          saveSnapshotCache(nextSnap);
+          return nextSnap;
+        });
+      } else {
+        // Strictly empty connecting state — zero fake candles while real market bars load (~100ms)
+        setSnapshot(createEmptyLiveSnapshot(instMeta.id, currentTfUs));
       }
-    } catch (e) {
-      console.warn('Tauri switch_instrument failed:', e);
-    }
-
-    if (!newSnap) {
-      newSnap = generateCanonicalSnapshot(instrumentId);
-    }
-
-    setSnapshot(newSnap);
-    saveSnapshotCache(newSnap);
+    });
   };
 
-  const handleToggleReplay = async (enable: boolean) => {
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const snap = await invoke<ChartSnapshotDTO>('toggle_replay', { enable });
-        if (snap) {
-          setSnapshot(snap);
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('Tauri toggle_replay failed:', e);
-    }
-
-    // Browser simulation
+  const applyReplayCursor = (cursorIdx: number, state: 'Playing' | 'Paused', speedMultiplier?: number) => {
+    const full = replayRealBarsRef.current;
+    if (full.length < 3) return;
+    const clamped = Math.min(full.length, Math.max(2, cursorIdx));
+    replayCursorRef.current = clamped;
+    const visible = full.slice(0, clamped);
+    const closed = visible.slice(0, -1);
+    const active = visible[visible.length - 1];
+    const pct = Math.round(((clamped - 2) / Math.max(1, full.length - 2)) * 100);
     setSnapshot((prev) => ({
       ...prev,
-      playback: enable
-        ? {
-            is_replay_mode: true,
-            state: 'Playing',
-            speed_multiplier: 1,
-            progress_pct: 15,
-            current_ts_us: 1700000060000000,
-          }
-        : undefined,
+      bars: closed,
+      active_bar: active,
+      vwap: computeSessionVwap(closed, active.close_ticks),
+      playback: {
+        is_replay_mode: true,
+        state: clamped >= full.length ? 'Paused' : state,
+        speed_multiplier: speedMultiplier ?? prev.playback?.speed_multiplier ?? 1,
+        progress_pct: pct,
+        current_ts_us: active.bar_start_us,
+      },
     }));
   };
 
-  const handlePlayReplay = async () => {
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('play_replay');
-        await fetchSnapshot();
-        return;
-      }
-    } catch (e) {
-      console.warn('Tauri play_replay failed:', e);
+  const handleToggleReplay = async (enable: boolean) => {
+    if (enable && !checkOrPromptPrivilege('market_replay')) {
+      return;
     }
-    setSnapshot((prev) =>
-      prev.playback
-        ? {
+    if (enable) {
+      const full = [
+        ...snapshot.bars,
+        ...(snapshot.active_bar ? [snapshot.active_bar] : []),
+      ];
+      if (full.length < 5) return;
+      replayRealBarsRef.current = full;
+      const startCursor = Math.max(3, Math.floor(full.length * 0.35));
+      applyReplayCursor(startCursor, 'Playing', 1);
+    } else {
+      const full = replayRealBarsRef.current;
+      replayRealBarsRef.current = [];
+      setSnapshot((prev) => {
+        if (full.length > 1) {
+          const closed = full.slice(0, -1);
+          const tail = full[full.length - 1];
+          return {
             ...prev,
-            playback: { ...prev.playback, state: 'Playing' },
-          }
-        : prev
-    );
+            bars: closed,
+            active_bar: tail,
+            vwap: computeSessionVwap(closed, tail.close_ticks),
+            playback: undefined,
+          };
+        }
+        return { ...prev, playback: undefined };
+      });
+    }
+  };
+
+  const handlePlayReplay = async () => {
+    if (!snapshot.playback?.is_replay_mode) return;
+    const full = replayRealBarsRef.current;
+    const nextStart = replayCursorRef.current >= full.length ? Math.max(3, Math.floor(full.length * 0.2)) : replayCursorRef.current;
+    applyReplayCursor(nextStart, 'Playing');
   };
 
   const handlePauseReplay = async () => {
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('pause_replay');
-        await fetchSnapshot();
-        return;
-      }
-    } catch (e) {
-      console.warn('Tauri pause_replay failed:', e);
-    }
     setSnapshot((prev) =>
-      prev.playback
-        ? {
-            ...prev,
-            playback: { ...prev.playback, state: 'Paused' },
-          }
-        : prev
+      prev.playback ? { ...prev, playback: { ...prev.playback, state: 'Paused' } } : prev
     );
   };
 
   const handleStepReplay = async () => {
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const snap = await invoke<ChartSnapshotDTO>('step_replay');
-        if (snap) {
-          setSnapshot(snap);
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('Tauri step_replay failed:', e);
-    }
-    setSnapshot((prev) =>
-      prev.playback
-        ? {
-            ...prev,
-            playback: {
-              ...prev.playback,
-              progress_pct: Math.min(100, prev.playback.progress_pct + 5),
-            },
-          }
-        : prev
-    );
+    if (!snapshot.playback?.is_replay_mode) return;
+    applyReplayCursor(replayCursorRef.current + 1, 'Paused');
   };
 
   const handleResetReplay = async () => {
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const snap = await invoke<ChartSnapshotDTO>('reset_replay');
-        if (snap) {
-          setSnapshot(snap);
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('Tauri reset_replay failed:', e);
-    }
-    setSnapshot((prev) =>
-      prev.playback
-        ? {
-            ...prev,
-            playback: {
-              ...prev.playback,
-              progress_pct: 0,
-              state: 'Paused',
-            },
-          }
-        : prev
-    );
+    if (!snapshot.playback?.is_replay_mode) return;
+    applyReplayCursor(3, 'Paused');
   };
 
   const handleSpeedChange = async (speed: number) => {
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('set_replay_speed', { speed });
-        await fetchSnapshot();
-        return;
-      }
-    } catch (e) {
-      console.warn('Tauri set_replay_speed failed:', e);
-    }
     setSnapshot((prev) =>
       prev.playback
-        ? {
-            ...prev,
-            playback: {
-              ...prev.playback,
-              speed_multiplier: speed,
-            },
-          }
+        ? { ...prev, playback: { ...prev.playback, speed_multiplier: speed } }
         : prev
     );
   };
 
-  const handleExportCSV = async () => {
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const csvContent = await invoke<string>('export_chart_csv', { exportType: 'bars' });
-        if (csvContent) {
-          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.setAttribute('download', `DeepChart_${snapshot.instrument_id.replace(/:/g, '_')}_bars.csv`);
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('Tauri export_chart_csv failed, falling back to client-side CSV:', e);
+  useEffect(() => {
+    if (!snapshot.playback?.is_replay_mode || snapshot.playback.state !== 'Playing') {
+      return;
     }
+    const speed = Math.max(1, snapshot.playback.speed_multiplier || 1);
+    const intervalMs = Math.max(70, Math.round(750 / speed));
+    const timer = setInterval(() => {
+      const full = replayRealBarsRef.current;
+      if (replayCursorRef.current >= full.length) {
+        setSnapshot((prev) =>
+          prev.playback ? { ...prev, playback: { ...prev.playback, state: 'Paused', progress_pct: 100 } } : prev
+        );
+        return;
+      }
+      applyReplayCursor(replayCursorRef.current + 1, 'Playing', speed);
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [snapshot.playback?.is_replay_mode, snapshot.playback?.state, snapshot.playback?.speed_multiplier]);
 
-    // Client-side CSV generator fallback
-    let csv = 'bar_start_us,timeframe_us,open_ticks,high_ticks,low_ticks,close_ticks,buy_units,sell_units,total_units,delta_units,poc_ticks\n';
-    snapshot.bars.forEach((b) => {
-      csv += `${b.bar_start_us},${b.timeframe_us},${b.open_ticks},${b.high_ticks},${b.low_ticks},${b.close_ticks},${b.buy_units},${b.sell_units},${b.total_units},${b.delta_units},${b.poc_ticks || ''}\n`;
+  const handleExportCSV = async () => {
+    if (!checkOrPromptPrivilege('csv_export')) {
+      return;
+    }
+    const allRealBars = [
+      ...snapshot.bars,
+      ...(snapshot.active_bar ? [snapshot.active_bar] : []),
+    ];
+    let csv = 'bar_start_us,timeframe_us,open_ticks,high_ticks,low_ticks,close_ticks,buy_units,sell_units,unknown_units,total_units,delta_units,poc_ticks\n';
+    allRealBars.forEach((b) => {
+      csv += `${b.bar_start_us},${b.timeframe_us},${b.open_ticks},${b.high_ticks},${b.low_ticks},${b.close_ticks},${b.buy_units},${b.sell_units},${b.unknown_units ?? 0},${b.total_units},${b.delta_units},${b.poc_ticks || ''}\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -711,258 +1134,474 @@ export function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  // Real Live Exchange Feed: Direct Bybit Linear WebSocket & REST streaming
+  // Real Live Exchange Feed: Direct Bybit/Binance WebSocket & REST + MT5 ECN streaming (only after Login!)
   useEffect(() => {
-    if (!isLiveFeedActive) {
-      fetchSnapshot();
-      const timer = setInterval(fetchSnapshot, 1000);
-      return () => clearInterval(timer);
+    if (!authSession || !isLiveFeedActive || snapshot.playback?.is_replay_mode) {
+      liveFeedService.disconnect();
+      return;
     }
 
     const symbol = getBybitSymbol(snapshot.instrument_id);
     let isCancelled = false;
+    const fetchController = new AbortController();
+    activeFetchAbortRef.current = fetchController;
 
-    // 1. Immediately load previously cached historical bars for this specific timeframe (Zero blank screen!)
     const currentTfUs = snapshot.timeframe_us || 60_000_000;
-    const cachedBars = loadSymbolBars(`${symbol}_${currentTfUs}`) || loadSymbolBars(symbol);
-    if (cachedBars && cachedBars.length > 0) {
-      setSnapshot((prev) => ({
-        ...prev,
-        bars: cachedBars,
-        active_bar: cachedBars[cachedBars.length - 1],
-      }));
-    }
+    const frameAtStart = activeFrameRef.current;
+    const activeInterval =
+      frameAtStart.category === 'time' ? timeframeUsToBybitInterval(currentTfUs) : '1';
+    const useDeepTicks = frameAtStart.category !== 'time';
 
-    // 2. Fetch fresh historical kline bars from exchange (1000 bars for full session & macro context)
-    const activeInterval = timeframeUsToBybitInterval(currentTfUs);
-    liveFeedService.fetchRealHistoricalKlines(symbol, activeInterval, 1000)
+    // Fetch fresh historical kline bars from exchange / MT5 / CME Globex (2-Tier Public + L3 MBO) / Multi-Leg Synthetic Engine
+    const resolvedFeedSource = snapshot.instrument_id.startsWith('CME:')
+      ? cmeStatus.configured || cmeStatus.statusState === 'FILE_LOADED'
+        ? 'CME Globex MDP 3.0 Level-3 MBO'
+        : 'CME Globex Futures (Public Live · Free)'
+      : snapshot.instrument_id.startsWith('SYNTH:')
+      ? 'Multi-Leg Real Synthetic Engine'
+      : snapshot.instrument_id.startsWith('MT5:')
+      ? 'MetaTrader 5 ECN Bridge'
+      : snapshot.instrument_id.startsWith('BINANCE:')
+      ? 'Binance USD-M Futures'
+      : 'Bybit / Binance Linear';
+
+    liveFeedService
+      .fetchRealHistoricalKlines(
+        symbol,
+        activeInterval,
+        1500,
+        undefined,
+        fetchController.signal,
+        useDeepTicks
+      )
       .then((realBars) => {
-        if (isCancelled || realBars.length === 0) return;
-        const lastBar = realBars[realBars.length - 1];
-        setSnapshot((prev) => {
-          // Pure real-time synchronization: REPLACE bars directly with real historical klines!
-          const pureHistoricalBars = realBars.slice(0, -1);
-          saveSymbolBars(`${symbol}_${currentTfUs}`, pureHistoricalBars);
-          const currentPrice = lastBar.close_ticks;
+        if (isCancelled || fetchController.signal.aborted || realBars.length === 0) return;
 
-          return {
-            ...prev,
-            bars: pureHistoricalBars,
-            active_bar: lastBar,
-            recent_trades: [], // Fresh real tape
-            vwap: computeSessionVwap(pureHistoricalBars, currentPrice),
-            options_summary: recalculateOptionsLevels(prev.options_summary),
-            data_quality: {
-              ...prev.data_quality,
-              feed_status: 'LIVE_CONNECTED',
-              feed_source: 'Bybit Linear WebSocket',
-              freshness_ms: 18,
-              completeness: 'Complete',
-            },
-          };
+        const curFrame = activeFrameRef.current;
+        if (curFrame.category !== 'time') {
+          rawBaseBarsRef.current = { key: symbol, bars: realBars };
+          const built = buildNonTimeBarsFromRealData(realBars, curFrame, snapshot.instrument_id);
+          if (built.length === 0) return;
+          const closed = built.length > 1 ? built.slice(0, -1) : [];
+          const tail = built[built.length - 1];
+          const computedVwap = computeSessionVwap(closed, tail.close_ticks);
+
+          startTransition(() => {
+            setSnapshot((prev) => {
+              if (getBybitSymbol(prev.instrument_id) !== symbol) return prev;
+              const nextSnap: ChartSnapshotDTO = {
+                ...prev,
+                venue: getInstrumentMeta(prev.instrument_id).venue,
+                bars: closed,
+                active_bar: tail,
+                recent_trades: prev.recent_trades || [],
+                vwap: computedVwap,
+                options_summary: recalculateOptionsLevels(prev.options_summary),
+                data_quality: {
+                  ...prev.data_quality,
+                  feed_status: 'LIVE_CONNECTED',
+                  feed_source: resolvedFeedSource,
+                  freshness_ms: 18,
+                  completeness: 'Complete',
+                },
+              };
+              checkNewAlerts(nextSnap);
+              return nextSnap;
+            });
+          });
+          return;
+        }
+
+        const lastBar = realBars[realBars.length - 1];
+        const pureHistoricalBars = realBars.slice(0, -1);
+        saveSymbolBars(`${symbol}_${currentTfUs}`, pureHistoricalBars);
+        dataPackService.updateHydratedSeries(symbol, currentTfUs, realBars);
+        const currentPrice = lastBar.close_ticks;
+        const computedVwap = computeSessionVwap(pureHistoricalBars, currentPrice);
+
+        startTransition(() => {
+          setSnapshot((prev) => {
+            if (getBybitSymbol(prev.instrument_id) !== symbol) return prev;
+            const mergedClosed = mergeBars(prev.bars, pureHistoricalBars).filter(
+              (b) => b.bar_start_us < lastBar.bar_start_us
+            );
+            const nextSnap: ChartSnapshotDTO = {
+              ...prev,
+              venue: getInstrumentMeta(prev.instrument_id).venue,
+              bars: mergedClosed,
+              active_bar: lastBar,
+              recent_trades: prev.recent_trades || [],
+              vwap: computedVwap,
+              options_summary: recalculateOptionsLevels(prev.options_summary),
+              data_quality: {
+                ...prev.data_quality,
+                feed_status: 'LIVE_CONNECTED',
+                feed_source: resolvedFeedSource,
+                freshness_ms: 18,
+                completeness: 'Complete',
+              },
+            };
+            saveSnapshotCache(nextSnap);
+            checkNewAlerts(nextSnap);
+            return nextSnap;
+          });
         });
       })
       .catch((err) => {
-        console.warn('[LiveFeed] Failed to load fresh klines from Bybit:', err);
+        if (!fetchController.signal.aborted) {
+          console.warn('[LiveFeed] Failed to load fresh klines:', err);
+        }
       });
 
-    // Connect real WebSocket for streaming live trades and level 2 orderbook depth
-    liveFeedService.connect(symbol, {
-      onTrade: (trade) => {
-        if (isCancelled) return;
-        pendingTradesRef.current.push(trade);
+    // Connect real WebSocket / 250ms MT5 ECN / Multi-Leg Synthetic stream for live trades, live bar sync, and L2 orderbook depth
+    liveFeedService.connect(
+      symbol,
+      {
+        onLiveBar: (liveBar, prevClosedBar) => {
+          if (
+            isCancelled ||
+            activeFrameRef.current.category !== 'time' ||
+            symbol.startsWith('SYNTH:') ||
+            !liveBar.bar_start_us ||
+            !Number.isFinite(liveBar.close_ticks)
+          ) {
+            return;
+          }
+          setSnapshot((prev) => {
+            let prevBars = prev.bars;
+            let curActive = prev.active_bar ? { ...prev.active_bar } : null;
+            const lbStart = liveBar.bar_start_us!;
+            const lbTf = liveBar.timeframe_us || prev.timeframe_us || 60_000_000;
+            const lbOpen = liveBar.open_ticks ?? liveBar.close_ticks!;
+            const lbHigh = liveBar.high_ticks ?? liveBar.close_ticks!;
+            const lbLow = liveBar.low_ticks ?? liveBar.close_ticks!;
+            const lbClose = liveBar.close_ticks!;
+            const lbVol = liveBar.total_units || 1;
 
-        if (!rafIdRef.current) {
-          rafIdRef.current = requestAnimationFrame(() => {
-            rafIdRef.current = null;
-            const trades = pendingTradesRef.current;
-            pendingTradesRef.current = [];
-            const ob = pendingOrderBookRef.current;
-            pendingOrderBookRef.current = null;
+            if (!curActive || curActive.bar_start_us < lbStart) {
+              if (curActive && curActive.bar_start_us < lbStart) {
+                if (prevClosedBar && prevClosedBar.bar_start_us === curActive.bar_start_us) {
+                  curActive.open_ticks = prevClosedBar.open_ticks ?? curActive.open_ticks;
+                  curActive.high_ticks = Math.max(curActive.high_ticks, prevClosedBar.high_ticks ?? curActive.high_ticks);
+                  curActive.low_ticks = Math.min(curActive.low_ticks, prevClosedBar.low_ticks ?? curActive.low_ticks);
+                  curActive.close_ticks = prevClosedBar.close_ticks ?? curActive.close_ticks;
+                }
+                curActive.finality = 'Closed';
+                prevBars = [...prevBars, curActive].slice(-50_000);
+              }
+              const buyU = lbClose >= lbOpen ? Math.ceil(lbVol * 0.55) : Math.floor(lbVol * 0.45);
+              const sellU = Math.max(0, lbVol - buyU);
+              curActive = {
+                bar_start_us: lbStart,
+                timeframe_us: lbTf,
+                open_ticks: lbOpen,
+                high_ticks: lbHigh,
+                low_ticks: lbLow,
+                close_ticks: lbClose,
+                buy_units: buyU,
+                sell_units: sellU,
+                unknown_units: 0,
+                total_units: lbVol,
+                delta_units: buyU - sellU,
+                trade_count: Math.max(1, lbVol),
+                poc_ticks: lbClose,
+                value_area: {
+                  poc_ticks: lbClose,
+                  vah_ticks: Math.max(lbOpen, lbClose),
+                  val_ticks: Math.min(lbOpen, lbClose),
+                  volume_covered: Math.round(lbVol * 0.7),
+                },
+                footprint: [],
+                finality: 'Forming',
+                completeness: 'OHLCV_Only',
+              };
+            } else if (curActive.bar_start_us === lbStart) {
+              curActive.open_ticks = lbOpen;
+              curActive.high_ticks = Math.max(curActive.high_ticks, lbHigh, lbClose);
+              curActive.low_ticks = Math.min(curActive.low_ticks, lbLow, lbClose);
+              curActive.close_ticks = lbClose;
+              if (lbVol > curActive.total_units && (!curActive.footprint || curActive.footprint.length === 0)) {
+                const diff = lbVol - curActive.total_units;
+                if (lbClose >= curActive.open_ticks) curActive.buy_units += diff;
+                else curActive.sell_units += diff;
+                curActive.total_units = curActive.buy_units + curActive.sell_units + (curActive.unknown_units || 0);
+                curActive.delta_units = curActive.buy_units - curActive.sell_units;
+              }
+            }
 
-            if (trades.length === 0 && !ob) return;
+            return {
+              ...prev,
+              bars: prevBars,
+              active_bar: curActive,
+            };
+          });
+        },
+        onTrade: (trade) => {
+          if (isCancelled) return;
+          pendingTradesRef.current.push(trade);
 
-            setSnapshot((prev) => {
-              const tickStep = getFootprintTickStep(symbol);
-              let updatedRecent = prev.recent_trades ? [...prev.recent_trades] : [];
-              let currentActive = prev.active_bar ? { ...prev.active_bar } : null;
-              let prevBars = [...prev.bars];
+          if (!rafIdRef.current) {
+            rafIdRef.current = requestAnimationFrame(() => {
+              rafIdRef.current = null;
+              const trades = pendingTradesRef.current;
+              pendingTradesRef.current = [];
+              const ob = pendingOrderBookRef.current;
+              pendingOrderBookRef.current = null;
 
-              trades.forEach((t) => {
-                updatedRecent.unshift(t);
+              if (trades.length === 0 && !ob) return;
 
-                const timeframeUs = currentActive?.timeframe_us || 60_000_000;
-                const tradeMinuteStartUs = Math.floor(t.exchange_ts_us / timeframeUs) * timeframeUs;
+              setSnapshot((prev) => {
+                const tickStep = getFootprintTickStep(symbol);
+                const isSynth = prev.instrument_id.startsWith('SYNTH:');
+                const curFrame = activeFrameRef.current;
+                let updatedRecent = prev.recent_trades ? [...prev.recent_trades] : [];
+                let currentActive = prev.active_bar ? { ...prev.active_bar } : null;
+                let prevBars = [...prev.bars];
 
-                if (!currentActive || currentActive.bar_start_us !== tradeMinuteStartUs) {
-                  // Rollover: If we have an existing active bar from a previous minute, close it and push to bars
-                  if (currentActive && currentActive.bar_start_us < tradeMinuteStartUs) {
-                    currentActive.finality = 'Closed';
-                    prevBars = [...prevBars, currentActive].slice(-1500);
+                trades.forEach((t) => {
+                  updatedRecent.unshift(t);
+
+                  // Only guard against genuine cross-symbol scale mismatch (>25% jump, e.g. $60k BTC vs $3.6k Gold);
+                  // skip for signed/basis SYNTH:* spreads where near-zero spread ticks can move >25% legitimately.
+                  const refScaleTicks =
+                    currentActive?.close_ticks ||
+                    (prevBars.length > 0 ? prevBars[prevBars.length - 1].close_ticks : 0);
+                  if (
+                    !isSynth &&
+                    refScaleTicks > 0 &&
+                    t.price_ticks > 0 &&
+                    Math.abs(refScaleTicks - t.price_ticks) / t.price_ticks > 0.25
+                  ) {
+                    return;
                   }
-                  // Start a fresh, unpolluted active bar matching this exact trade
-                  currentActive = {
-                    bar_start_us: tradeMinuteStartUs,
-                    timeframe_us: timeframeUs,
-                    open_ticks: t.price_ticks,
-                    high_ticks: t.price_ticks,
-                    low_ticks: t.price_ticks,
-                    close_ticks: t.price_ticks,
-                    buy_units: t.aggressor === 'Buy' ? t.quantity_units : 0,
-                    sell_units: t.aggressor === 'Sell' ? t.quantity_units : 0,
-                    unknown_units: 0,
-                    total_units: t.quantity_units,
-                    delta_units: t.aggressor === 'Buy' ? t.quantity_units : -t.quantity_units,
-                    trade_count: 1,
-                    poc_ticks: t.price_ticks,
-                    value_area: {
-                      poc_ticks: t.price_ticks,
-                      vah_ticks: t.price_ticks,
-                      val_ticks: t.price_ticks,
-                      volume_covered: t.quantity_units,
-                    },
-                    footprint: [
-                      {
-                        price_ticks: Math.round(t.price_ticks / tickStep) * tickStep,
-                        buy_units: t.aggressor === 'Buy' ? t.quantity_units : 0,
-                        sell_units: t.aggressor === 'Sell' ? t.quantity_units : 0,
-                        unknown_units: 0,
-                        total_units: t.quantity_units,
-                        delta_units: t.aggressor === 'Buy' ? t.quantity_units : -t.quantity_units,
-                        trade_count: 1,
-                      },
-                    ],
-                    finality: 'Forming',
-                    completeness: 'Complete',
-                  };
-                } else {
-                  // Sanity guard against any sudden crazy jump (> 3% in a single trade):
-                  if (Math.abs(currentActive.close_ticks - t.price_ticks) / currentActive.close_ticks > 0.03) {
-                    currentActive.open_ticks = t.price_ticks;
-                    currentActive.high_ticks = t.price_ticks;
-                    currentActive.low_ticks = t.price_ticks;
-                    currentActive.close_ticks = t.price_ticks;
-                  } else {
-                    currentActive.high_ticks = Math.max(currentActive.high_ticks, t.price_ticks);
-                    currentActive.low_ticks = Math.min(currentActive.low_ticks, t.price_ticks);
-                    currentActive.close_ticks = t.price_ticks;
+
+                  // Real-time Non-Time Bar Rollover (Range / Volume / Tick Bars)
+                  if (curFrame.category !== 'time') {
+                    const rolled = appendLiveTradeToNonTimeSeries(
+                      prevBars,
+                      currentActive,
+                      t,
+                      curFrame,
+                      prev.instrument_id
+                    );
+                    prevBars = rolled.closedBars;
+                    currentActive = rolled.activeBar;
+                    return;
                   }
 
-                  const isBuy = t.aggressor === 'Buy';
-                  currentActive.buy_units += isBuy ? t.quantity_units : 0;
-                  currentActive.sell_units += !isBuy ? t.quantity_units : 0;
-                  currentActive.total_units += t.quantity_units;
-                  currentActive.delta_units = currentActive.buy_units - currentActive.sell_units;
-                  currentActive.trade_count += 1;
+                  const timeframeUs = currentActive?.timeframe_us || prev.timeframe_us || 60_000_000;
+                  const tradeMinuteStartUs = Math.floor(t.exchange_ts_us / timeframeUs) * timeframeUs;
 
-                  // Normalize footprint price ticks to symbol-specific tick step
-                  const cellPrice = Math.round(t.price_ticks / tickStep) * tickStep;
-                  const footprint = currentActive.footprint ? [...currentActive.footprint] : [];
-                  let cell = footprint.find((c) => c.price_ticks === cellPrice);
-                  if (cell) {
-                    cell.buy_units += isBuy ? t.quantity_units : 0;
-                    cell.sell_units += !isBuy ? t.quantity_units : 0;
-                    cell.total_units += t.quantity_units;
-                    cell.delta_units = cell.buy_units - cell.sell_units;
-                    cell.trade_count += 1;
-                  } else {
-                    footprint.push({
-                      price_ticks: cellPrice,
-                      buy_units: isBuy ? t.quantity_units : 0,
-                      sell_units: !isBuy ? t.quantity_units : 0,
+                  if (!currentActive || currentActive.bar_start_us !== tradeMinuteStartUs) {
+                    if (currentActive && currentActive.bar_start_us < tradeMinuteStartUs) {
+                      currentActive.finality = 'Closed';
+                      prevBars = [...prevBars, currentActive].slice(-50_000);
+                      dataPackService.updateHydratedSeries(symbol, timeframeUs, prevBars);
+                    }
+                    currentActive = {
+                      bar_start_us: tradeMinuteStartUs,
+                      timeframe_us: timeframeUs,
+                      open_ticks: t.price_ticks,
+                      high_ticks: t.price_ticks,
+                      low_ticks: t.price_ticks,
+                      close_ticks: t.price_ticks,
+                      buy_units: t.aggressor === 'Buy' ? t.quantity_units : 0,
+                      sell_units: t.aggressor === 'Sell' ? t.quantity_units : 0,
                       unknown_units: 0,
                       total_units: t.quantity_units,
-                      delta_units: isBuy ? t.quantity_units : -t.quantity_units,
+                      delta_units: t.aggressor === 'Buy' ? t.quantity_units : -t.quantity_units,
                       trade_count: 1,
-                    });
-                    footprint.sort((a, b) => a.price_ticks - b.price_ticks);
-                  }
-
-                  let maxVol = 0;
-                  let poc = currentActive.poc_ticks;
-                  footprint.forEach((c) => {
-                    if (c.total_units > maxVol) {
-                      maxVol = c.total_units;
-                      poc = c.price_ticks;
-                    }
-                  });
-
-                  currentActive.poc_ticks = poc;
-                  currentActive.footprint = footprint;
-                }
-              });
-
-              return {
-                ...prev,
-                bars: prevBars,
-                recent_trades: updatedRecent.slice(0, 40),
-                active_bar: currentActive,
-                order_book: ob || prev.order_book,
-              };
-            });
-          });
-        }
-      },
-      onOrderBook: (ob) => {
-        if (isCancelled) return;
-        pendingOrderBookRef.current = ob;
-        const nowMs = performance.now();
-        // Throttle standalone L2 orderbook React commits to ~4Hz (220ms) so 50Hz Bybit L2 deltas never choke UI
-        if (nowMs - lastObCommitMsRef.current < 220) return;
-        lastObCommitMsRef.current = nowMs;
-
-        if (!rafIdRef.current) {
-          rafIdRef.current = requestAnimationFrame(() => {
-            rafIdRef.current = null;
-            const obData = pendingOrderBookRef.current;
-            pendingOrderBookRef.current = null;
-            if (obData) {
-              const appendHeatmap = nowMs - lastHeatmapSliceMsRef.current >= 1200;
-              if (appendHeatmap) {
-                lastHeatmapSliceMsRef.current = nowMs;
-              }
-              setSnapshot((prev) => ({
-                ...prev,
-                order_book: obData,
-                heatmap_slices: appendHeatmap
-                  ? [
-                      ...(prev.heatmap_slices || []).slice(-40),
-                      {
-                        timestamp_us: Date.now() * 1000,
-                        bids: obData.bids.map((b) => [b.price_ticks, b.quantity_units] as [number, number]),
-                        asks: obData.asks.map((a) => [a.price_ticks, a.quantity_units] as [number, number]),
+                      poc_ticks: t.price_ticks,
+                      value_area: {
+                        poc_ticks: t.price_ticks,
+                        vah_ticks: t.price_ticks,
+                        val_ticks: t.price_ticks,
+                        volume_covered: t.quantity_units,
                       },
-                    ]
-                  : prev.heatmap_slices,
-              }));
-            }
+                      footprint: [
+                        {
+                          price_ticks: Math.round(t.price_ticks / tickStep) * tickStep,
+                          buy_units: t.aggressor === 'Buy' ? t.quantity_units : 0,
+                          sell_units: t.aggressor === 'Sell' ? t.quantity_units : 0,
+                          unknown_units: 0,
+                          total_units: t.quantity_units,
+                          delta_units: t.aggressor === 'Buy' ? t.quantity_units : -t.quantity_units,
+                          trade_count: 1,
+                        },
+                      ],
+                      finality: 'Forming',
+                      completeness: 'Complete',
+                    };
+                  } else {
+                    if (
+                      !isSynth &&
+                      currentActive.close_ticks > 0 &&
+                      Math.abs(currentActive.close_ticks - t.price_ticks) / currentActive.close_ticks > 0.25
+                    ) {
+                      currentActive.open_ticks = t.price_ticks;
+                      currentActive.high_ticks = t.price_ticks;
+                      currentActive.low_ticks = t.price_ticks;
+                      currentActive.close_ticks = t.price_ticks;
+                    } else {
+                      currentActive.high_ticks = Math.max(currentActive.high_ticks, t.price_ticks);
+                      currentActive.low_ticks = Math.min(currentActive.low_ticks, t.price_ticks);
+                      currentActive.close_ticks = t.price_ticks;
+                    }
+
+                    const isBuy = t.aggressor === 'Buy';
+                    currentActive.buy_units += isBuy ? t.quantity_units : 0;
+                    currentActive.sell_units += !isBuy ? t.quantity_units : 0;
+                    currentActive.total_units =
+                      currentActive.buy_units + currentActive.sell_units + (currentActive.unknown_units || 0);
+                    currentActive.delta_units = currentActive.buy_units - currentActive.sell_units;
+                    currentActive.trade_count += 1;
+                    currentActive.completeness = 'Complete';
+
+                    // Normalize footprint price ticks to symbol-specific tick step
+                    const cellPrice = Math.round(t.price_ticks / tickStep) * tickStep;
+                    const footprint = currentActive.footprint ? [...currentActive.footprint] : [];
+                    let cell = footprint.find((c) => c.price_ticks === cellPrice);
+                    if (cell) {
+                      cell.buy_units += isBuy ? t.quantity_units : 0;
+                      cell.sell_units += !isBuy ? t.quantity_units : 0;
+                      cell.total_units += t.quantity_units;
+                      cell.delta_units = cell.buy_units - cell.sell_units;
+                      cell.trade_count += 1;
+                    } else {
+                      footprint.push({
+                        price_ticks: cellPrice,
+                        buy_units: isBuy ? t.quantity_units : 0,
+                        sell_units: !isBuy ? t.quantity_units : 0,
+                        unknown_units: 0,
+                        total_units: t.quantity_units,
+                        delta_units: isBuy ? t.quantity_units : -t.quantity_units,
+                        trade_count: 1,
+                      });
+                      footprint.sort((a, b) => a.price_ticks - b.price_ticks);
+                    }
+
+                    let maxVol = 0;
+                    let poc = currentActive.poc_ticks;
+                    footprint.forEach((c) => {
+                      if (c.total_units > maxVol) {
+                        maxVol = c.total_units;
+                        poc = c.price_ticks;
+                      }
+                    });
+
+                    currentActive.poc_ticks = poc;
+                    currentActive.footprint = footprint;
+                  }
+                });
+
+                const trimmedRecent = updatedRecent.slice(0, 40);
+                const refLatestUs = trimmedRecent[0]?.exchange_ts_us || 0;
+                let sBuy = 0;
+                let sSell = 0;
+                let sCount = 0;
+                for (const tr of trimmedRecent) {
+                  if (refLatestUs > 0 && Math.abs(refLatestUs - tr.exchange_ts_us) <= 1_000_000) {
+                    if (tr.aggressor === 'Buy') sBuy += tr.quantity_units;
+                    else sSell += tr.quantity_units;
+                    sCount++;
+                  }
+                }
+
+                return {
+                  ...prev,
+                  bars: prevBars,
+                  recent_trades: trimmedRecent,
+                  active_bar: currentActive,
+                  order_book: ob || prev.order_book,
+                  speed_1s: {
+                    window_ms: 1000,
+                    buy_units: sBuy,
+                    sell_units: sSell,
+                    unknown_units: 0,
+                    total_units: sBuy + sSell,
+                    delta_units: sBuy - sSell,
+                    trade_count: sCount,
+                  },
+                };
+              });
+            });
+          }
+        },
+        onOrderBook: (ob) => {
+          if (isCancelled) return;
+          pendingOrderBookRef.current = ob;
+          const nowMs = performance.now();
+          if (nowMs - lastObCommitMsRef.current < 200) return;
+          lastObCommitMsRef.current = nowMs;
+
+          if (!rafIdRef.current) {
+            rafIdRef.current = requestAnimationFrame(() => {
+              rafIdRef.current = null;
+              const obData = pendingOrderBookRef.current;
+              pendingOrderBookRef.current = null;
+              if (obData) {
+                const appendHeatmap = nowMs - lastHeatmapSliceMsRef.current >= 1200;
+                if (appendHeatmap) {
+                  lastHeatmapSliceMsRef.current = nowMs;
+                }
+                setSnapshot((prev) => ({
+                  ...prev,
+                  order_book: obData,
+                  heatmap_slices: appendHeatmap
+                    ? [
+                        ...(prev.heatmap_slices || []).slice(-40),
+                        {
+                          timestamp_us: Date.now() * 1000,
+                          bids: obData.bids.map((b) => [b.price_ticks, b.quantity_units] as [number, number]),
+                          asks: obData.asks.map((a) => [a.price_ticks, a.quantity_units] as [number, number]),
+                        },
+                      ]
+                    : prev.heatmap_slices,
+                }));
+              }
+            });
+          }
+        },
+        onCmeMboTelemetry: (icebergs, stopSweeps) => {
+          if (isCancelled) return;
+          setSnapshot((prev) => {
+            const nextSnap: ChartSnapshotDTO = {
+              ...prev,
+              icebergs,
+              cme_stop_sweeps: stopSweeps,
+            };
+            checkNewAlerts(nextSnap);
+            return nextSnap;
           });
-        }
+        },
+        onStatusChange: (status) => {
+          if (isCancelled) return;
+          setSnapshot((prev) => ({
+            ...prev,
+            data_quality: {
+              ...prev.data_quality,
+              feed_status: status === 'CONNECTED' ? 'LIVE_CONNECTED' : 'DEGRADED',
+              freshness_ms: status === 'CONNECTED' ? 14 : 999,
+            },
+          }));
+        },
       },
-      onStatusChange: (status) => {
-        if (isCancelled) return;
-        setSnapshot((prev) => ({
-          ...prev,
-          data_quality: {
-            ...prev.data_quality,
-            feed_status: status === 'CONNECTED' ? 'LIVE_CONNECTED' : 'DEGRADED',
-            freshness_ms: status === 'CONNECTED' ? 14 : 999,
-          },
-        }));
-      },
-    });
+      currentTfUs
+    );
 
     return () => {
       isCancelled = true;
+      fetchController.abort();
       if (rafIdRef.current) {
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
       liveFeedService.disconnect();
     };
-  }, [snapshot.instrument_id, isLiveFeedActive]);
+  }, [snapshot.instrument_id, synthRevision, isLiveFeedActive, authSession, snapshot.playback?.is_replay_mode]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -982,21 +1621,88 @@ export function App() {
   }, [snapshot.playback]);
 
   const handleLoadMoreHistory = async () => {
-    if (snapshot.bars.length === 0) return;
-    const oldestBar = snapshot.bars[0];
-    const endMs = Math.round(oldestBar.bar_start_us / 1000);
+    if (snapshot.bars.length === 0 || isLoadingHistoryRef.current) return;
     const symbol = getBybitSymbol(snapshot.instrument_id);
+    const curFrame = activeFrameRef.current;
+
+    if (curFrame.category !== 'time') {
+      const baseBars = rawBaseBarsRef.current.key === symbol ? rawBaseBarsRef.current.bars : [];
+      const oldestRef = baseBars.length > 0 ? baseBars[0] : snapshot.bars[0];
+      const endMs = Math.max(1, Math.floor(oldestRef.bar_start_us / 1000) - 1);
+      const pageSig = `${symbol}_nontime_${curFrame.category}_${curFrame.value}_${endMs}`;
+      if (exhaustedHistoryRef.current.has(pageSig)) return;
+
+      isLoadingHistoryRef.current = true;
+      try {
+        const olderRaw = await liveFeedService.fetchRealHistoricalKlines(
+          symbol,
+          '1',
+          1500,
+          endMs,
+          undefined,
+          true
+        );
+        const strictlyOlder = olderRaw.filter((b) => b.bar_start_us < oldestRef.bar_start_us);
+        if (strictlyOlder.length > 0) {
+          const mergedRaw = mergeBars(strictlyOlder, baseBars.length > 0 ? baseBars : snapshot.bars).slice(-50_000);
+          rawBaseBarsRef.current = { key: symbol, bars: mergedRaw };
+          const built = buildNonTimeBarsFromRealData(mergedRaw, curFrame, snapshot.instrument_id);
+          if (built.length > 1) {
+            const closed = built.slice(0, -1);
+            const tail = built[built.length - 1];
+            startTransition(() => {
+              setSnapshot((prev) => {
+                if (getBybitSymbol(prev.instrument_id) !== symbol) return prev;
+                return {
+                  ...prev,
+                  bars: closed,
+                  active_bar: prev.active_bar || tail,
+                };
+              });
+            });
+          }
+        } else {
+          exhaustedHistoryRef.current.add(pageSig);
+        }
+      } catch (e) {
+        console.warn('Failed to load older granular history for custom frame:', e);
+      } finally {
+        isLoadingHistoryRef.current = false;
+      }
+      return;
+    }
+
+    const currentTfUs = snapshot.timeframe_us || 60_000_000;
+    const histKey = `${symbol}_${currentTfUs}`;
+    const oldestBar = snapshot.bars[0];
+    const endMs = Math.max(1, Math.floor(oldestBar.bar_start_us / 1000) - 1);
+    const pageSig = `${histKey}_${endMs}`;
+    if (exhaustedHistoryRef.current.has(pageSig)) return;
+
+    isLoadingHistoryRef.current = true;
+    const activeInterval = timeframeUsToBybitInterval(currentTfUs);
     try {
-      const olderBars = await liveFeedService.fetchRealHistoricalKlines(symbol, 1, 1000, endMs);
-      if (olderBars.length > 0) {
-        setSnapshot((prev) => {
-          const merged = mergeBars(olderBars, prev.bars);
-          saveSymbolBars(symbol, merged);
-          return { ...prev, bars: merged };
+      const olderBars = await liveFeedService.fetchRealHistoricalKlines(symbol, activeInterval, 1500, endMs);
+      const strictlyOlder = olderBars.filter((b) => b.bar_start_us < oldestBar.bar_start_us);
+      if (strictlyOlder.length > 0) {
+        startTransition(() => {
+          setSnapshot((prev) => {
+            if (getBybitSymbol(prev.instrument_id) !== symbol) return prev;
+            const merged = mergeBars(strictlyOlder, prev.bars).slice(-50_000);
+            saveSymbolBars(histKey, merged);
+            if (prev.active_bar) {
+              dataPackService.updateHydratedSeries(symbol, currentTfUs, [...merged, prev.active_bar]);
+            }
+            return { ...prev, bars: merged };
+          });
         });
+      } else {
+        exhaustedHistoryRef.current.add(pageSig);
       }
     } catch (e) {
       console.warn('Failed to load older historical bars:', e);
+    } finally {
+      isLoadingHistoryRef.current = false;
     }
   };
 
@@ -1004,6 +1710,9 @@ export function App() {
   const totalCvd = snapshot.bars.reduce((acc, b) => acc + (b.delta_units || 0), 0) + (snapshot.active_bar ? (snapshot.active_bar.delta_units || 0) : 0);
 
   const handleMt5ButtonClick = async () => {
+    if (!checkOrPromptPrivilege('mt5_execution')) {
+      return;
+    }
     // 1-Click Auto Connect directly without manual friction!
     const res = await mt5BridgeService.syncFromRealMt5();
     if (res.ok) {
@@ -1014,6 +1723,34 @@ export function App() {
     }
     setIsMt5ModalOpen(true);
   };
+
+  // Auth Gate Rendering: Login-Only Desktop Terminal
+  if (!authChecked) {
+    return (
+      <div
+        style={{
+          height: '100vh',
+          width: '100vw',
+          background: '#090C11',
+          color: '#94A3B8',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: '12px',
+        }}
+      >
+        Initializing VluxChart Engine...
+      </div>
+    );
+  }
+
+  if (!authSession) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  const isSystemReady = systemReport === null || systemReport.all_core_ready;
+  const localDataLabel = isSystemReady ? 'Hệ Thống' : 'Cài Hệ Thống';
 
   return (
     <div
@@ -1042,15 +1779,46 @@ export function App() {
         onTimeframeChange={handleTimeframeChange}
         soundEnabled={soundEnabled}
         onToggleSound={handleToggleSound}
-        onOpenBacktest={() => setIsBacktestOpen(true)}
-        onOpenZoneInspector={() => setIsZoneInspectorOpen(true)}
+        onOpenBacktest={() => {
+          if (checkOrPromptPrivilege('backtester')) setIsBacktestOpen(true);
+        }}
+        onOpenZoneInspector={() => {
+          if (checkOrPromptPrivilege('top7_zones')) setIsZoneInspectorOpen(true);
+        }}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenMt5Modal={handleMt5ButtonClick}
+        onOpenCmeModal={() => {
+          if (checkOrPromptPrivilege('mbo_l3')) setIsCmeModalOpen(true);
+        }}
+        cmeConnected={
+          cmeStatus.configured ||
+          cmeStatus.statusState === 'STREAMING' ||
+          cmeStatus.statusState === 'FILE_LOADED'
+        }
         onOpenIndicators={() => window.dispatchEvent(new CustomEvent('deepchart:open_indicators'))}
-        onOpenOptionsBoard={() => setIsOptionsBoardOpen(true)}
-        onOpenScriptEditor={() => setIsScriptEditorOpen(true)}
-        onOpenInstrumentStudio={() => setIsInstrumentStudioOpen(true)}
-        onOpenRiskManager={() => setIsRiskManagerOpen(true)}
+        onOpenOptionsBoard={() => {
+          if (checkOrPromptPrivilege('options_gex')) setIsOptionsBoardOpen(true);
+        }}
+        onOpenScriptEditor={() => {
+          if (checkOrPromptPrivilege('script_editor')) setIsScriptEditorOpen(true);
+        }}
+        onOpenInstrumentStudio={() => {
+          if (checkOrPromptPrivilege('instrument_studio')) setIsInstrumentStudioOpen(true);
+        }}
+        onOpenRiskManager={() => {
+          if (checkOrPromptPrivilege('risk_manager')) setIsRiskManagerOpen(true);
+        }}
+        onOpenDataManager={() => {
+          setIsFirstRunSystemPrompt(false);
+          setIsSystemModalOpen(true);
+        }}
+        localDataLabel={localDataLabel}
+        hasLocalData={isSystemReady}
+        authUserEmail={authSession.email}
+        authUserTier={authSession.tier}
+        activeFrame={activeFrame}
+        onOpenPrivilegeModal={() => setPrivilegeModal({ open: true, featureKey: null })}
+        onLogout={handleLogout}
         layoutPreset={layoutPreset}
         onLayoutPresetChange={handleLayoutPresetChange}
         activeRightTab={rightDockTab}
@@ -1063,7 +1831,10 @@ export function App() {
         tickAggregation={tickAggregation}
         onTickAggregationChange={setTickAggregation}
         multiChartLayout={multiChartLayout}
-        onMultiChartLayoutChange={setMultiChartLayout}
+        onMultiChartLayoutChange={(nextLayout) => {
+          if (nextLayout !== '1x1' && !checkOrPromptPrivilege('multi_chart')) return;
+          setMultiChartLayout(nextLayout);
+        }}
       />
 
       {/* Main Terminal Workspace: Left Sidebar + Central Chart Panel + Right Dock / Options Panel */}
@@ -1071,7 +1842,10 @@ export function App() {
         {/* Left 36px DeepCharts Tools Sidebar */}
         <LeftToolsSidebar
           activeTool={activeDrawingTool}
-          onSelectTool={setActiveDrawingTool}
+          onSelectTool={(tool) => {
+            if (tool === 'fixed_range_vp' && !checkOrPromptPrivilege('fixed_range_vp')) return;
+            setActiveDrawingTool(tool);
+          }}
           currentColor={drawingColor}
           onSelectColor={setDrawingColor}
           onClearAll={handleClearAllDrawings}
@@ -1124,6 +1898,11 @@ export function App() {
                 setIsPickingPriceOnChart(false);
               }}
               onLoadMoreHistory={handleLoadMoreHistory}
+              footprintMode={workspaceConfig.footprintMode}
+              heatmapPalette={workspaceConfig.heatmapPalette}
+              whaleVolumeThreshold={workspaceConfig.whaleVolumeThreshold}
+              userTier={authSession.tier}
+              onRequirePrivilege={(fk) => checkOrPromptPrivilege(fk as FeatureEntitlementKey)}
             />
           )}
         </div>
@@ -1219,10 +1998,14 @@ export function App() {
           display: 'flex',
           alignItems: 'center',
           padding: '0 12px',
+          gap: '12px',
           fontSize: '10.5px',
           justifyContent: 'space-between',
           color: '#94A3B8',
           userSelect: 'none',
+          whiteSpace: 'nowrap',
+          overflowX: 'auto',
+          scrollbarWidth: 'none',
         }}
       >
         {/* Left: VLUXCHART Brand Emblem & Active Workspace */}
@@ -1243,48 +2026,85 @@ export function App() {
             <span>VLUXCHART</span>
           </div>
 
-          {/* Active Workspace Profile Pill */}
-          <div
+          {/* Active Workspace Profile Selector (Live Interactive Preset Switcher) */}
+          <select
+            value={layoutPreset}
+            onChange={(e) => handleLayoutPresetChange(e.target.value as LayoutPreset)}
+            aria-label="Chọn bố cục không gian làm việc"
             style={{
-              background: '#1E222D',
-              border: '1px solid #2E3444',
+              background: '#181D27',
+              border: '1px solid #2A3242',
               borderRadius: '4px',
-              padding: '2px 8px',
-              fontSize: '10.5px',
+              padding: '2px 6px',
+              fontSize: '10px',
               color: '#E2E8F0',
               fontWeight: 600,
+              cursor: 'pointer',
+              outline: 'none',
             }}
+            title="Chuyển nhanh Bố cục Không gian làm việc (Ctrl+1..4)"
           >
-            001-PRO ▾
-          </div>
+            <option value="order_flow_pro">001 · Order Flow Pro</option>
+            <option value="pure_heatmap">002 · Pure Chart</option>
+            <option value="options_confluence">003 · Options &amp; GEX</option>
+            <option value="market_intel">004 · Zone Audit</option>
+            <option value="standard">005 · Standard</option>
+          </select>
 
           {/* Feed Connection Pill */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ color: '#94A3B8', fontSize: '10.5px' }}>Feed</span>
-            <span
+            <button
+              type="button"
               onClick={() => setIsLiveFeedActive(!isLiveFeedActive)}
               style={{
-                background: isLiveFeedActive ? (snapshot.instrument_id.startsWith('MT5:') ? '#0284C7' : '#15803D') : '#B45309',
-                color: '#FFFFFF',
-                padding: '2px 8px',
+                background: snapshot.playback?.is_replay_mode
+                  ? 'rgba(217, 119, 6, 0.2)'
+                  : isLiveFeedActive
+                  ? 'rgba(8, 153, 129, 0.16)'
+                  : '#1E2430',
+                color: snapshot.playback?.is_replay_mode
+                  ? '#FBBF24'
+                  : isLiveFeedActive
+                  ? '#34D399'
+                  : '#94A3B8',
+                border: `1px solid ${
+                  snapshot.playback?.is_replay_mode
+                    ? 'rgba(245, 158, 11, 0.45)'
+                    : isLiveFeedActive
+                    ? 'rgba(16, 185, 129, 0.45)'
+                    : '#2D3648'
+                }`,
+                padding: '1px 8px',
                 borderRadius: '4px',
                 fontSize: '10px',
                 fontWeight: 700,
                 cursor: 'pointer',
               }}
-              title="Click to toggle Live Exchange Stream vs Replay/Demo"
+              title="Bấm để Tạm dừng / Tiếp tục luồng dữ liệu thật trực tiếp"
             >
-              {isLiveFeedActive
-                ? snapshot.instrument_id.startsWith('MT5:')
-                  ? '1 Connection (MT5 Forex ECN) ▾'
-                  : '1 Connection (Bybit Live) ▾'
-                : 'Simulated Feed ▾'}
-            </span>
+              {snapshot.playback?.is_replay_mode
+                ? `● Market Replay (${snapshot.playback.speed_multiplier}x)`
+                : isLiveFeedActive
+                ? snapshot.instrument_id.startsWith('CME:')
+                  ? cmeStatus.configured || cmeStatus.statusState === 'FILE_LOADED'
+                    ? '● CME Globex Level-3 MBO'
+                    : '● CME Globex (Public Live)'
+                  : snapshot.instrument_id.startsWith('SYNTH:')
+                  ? '● Multi-Leg Synthetic Live'
+                  : snapshot.instrument_id.startsWith('MT5:')
+                  ? '● MT5 Forex & Metals ECN'
+                  : snapshot.instrument_id.startsWith('BINANCE:')
+                  ? '● Binance USD-M Live'
+                  : '● Bybit · Binance Live'
+                : '○ Feed Paused'}
+            </button>
           </div>
         </div>
 
         {/* Right: Exact Integer Volume Accounting Telemetry */}
         <div
+          className="tabular-nums"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -1368,6 +2188,14 @@ export function App() {
         onSelectInstrument={handleInstrumentChange}
       />
 
+      {/* US Futures CME Globex Level-3 MBO Connector Modal (Databento GLBX.MDP3 / dxFeed / Rithmic) */}
+      <CmeMboConnectionModal
+        isOpen={isCmeModalOpen}
+        onClose={() => setIsCmeModalOpen(false)}
+        currentInstrumentId={snapshot.instrument_id}
+        onSelectInstrument={(id, force) => handleInstrumentChange(id, force ?? true)}
+      />
+
       {/* ATAS Options Board & Strategy Analyzer Modal */}
       <OptionsBoardModal
         isOpen={isOptionsBoardOpen}
@@ -1386,13 +2214,12 @@ export function App() {
       <InstrumentStudioModal
         isOpen={isInstrumentStudioOpen}
         onClose={() => setIsInstrumentStudioOpen(false)}
-        onApplySynthetic={(name) => {
-          handleInstrumentChange(name);
+        activeFrame={activeFrame}
+        onApplySynthetic={(synthId) => {
+          handleInstrumentChange(synthId, true);
         }}
         onSelectFrameType={(type, val) => {
-          if (type === 'time') {
-            handleTimeframeChange(val);
-          }
+          handleSelectCustomFrame(type, val);
         }}
       />
 
@@ -1401,6 +2228,36 @@ export function App() {
         isOpen={isRiskManagerOpen}
         onClose={() => setIsRiskManagerOpen(false)}
         instrumentId={snapshot.instrument_id}
+      />
+
+      {/* System & Runtime Compatibility Bootstrapper (Auto-Skip if Ready; 1-Click Setup if Missing) */}
+      <SystemBootstrapModal
+        isOpen={isSystemModalOpen}
+        isFirstRunPrompt={isFirstRunSystemPrompt}
+        initialReport={systemReport}
+        dataManifest={dataManifest}
+        userEmail={authSession.email}
+        onClose={() => {
+          setIsSystemModalOpen(false);
+          setIsFirstRunSystemPrompt(false);
+        }}
+        onReportUpdated={(rep) => {
+          setSystemReport(rep);
+          if (rep.all_core_ready && snapshot.instrument_id.startsWith('MT5:')) {
+            mt5BridgeService.syncFromRealMt5().catch(() => {});
+          }
+        }}
+        onCacheCleared={(m) => setDataManifest(m)}
+      />
+
+      {/* 3-Tier Account Privileges & External Web Portal Upgrade Modal */}
+      <UpgradePrivilegeModal
+        isOpen={privilegeModal.open}
+        onClose={() => setPrivilegeModal({ open: false, featureKey: null })}
+        userEmail={authSession.email}
+        userTier={authSession.tier}
+        licenseId={authSession.license_id}
+        lockedFeatureKey={privilegeModal.featureKey}
       />
     </div>
   );

@@ -117,14 +117,27 @@ export const BacktestModal: React.FC<BacktestModalProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '20px' }}>⚡</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  color: '#34D399',
+                  background: 'rgba(16, 185, 129, 0.14)',
+                  border: '1px solid rgba(16, 185, 129, 0.45)',
+                  borderRadius: '4px',
+                  padding: '3px 7px',
+                }}
+              >
+                QUANT
+              </span>
               <div>
                 <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#FFF' }}>
                   Order Flow Quantitative Research Suite
                 </h2>
                 <p style={{ margin: '1px 0 0 0', fontSize: '11px', color: '#8E9AA8' }}>
-                  Execution Fill Modeling & Automated Grid-Search Optimizer (P5 & P5.4)
+                  Execution Fill Modeling &amp; Automated Grid-Search Optimizer
                 </p>
               </div>
             </div>
@@ -144,13 +157,13 @@ export const BacktestModal: React.FC<BacktestModalProps> = ({
                   cursor: 'pointer',
                 }}
               >
-                📊 SINGLE BACKTEST
+                SINGLE BACKTEST
               </button>
               <button
                 onClick={() => setActiveTab('optimizer')}
                 style={{
                   background: activeTab === 'optimizer' ? '#7C4DFF' : 'transparent',
-                  color: activeTab === 'optimizer' ? '#FFF' : '#8E9AA8',
+                  color: activeTab === 'optimizer' ? '#FFFFFF' : '#8E9AA8',
                   border: 'none',
                   padding: '4px 12px',
                   borderRadius: '4px',
@@ -159,7 +172,7 @@ export const BacktestModal: React.FC<BacktestModalProps> = ({
                   cursor: 'pointer',
                 }}
               >
-                🎯 GRID OPTIMIZER
+                GRID OPTIMIZER
               </button>
             </div>
           </div>
@@ -438,9 +451,8 @@ export const BacktestModal: React.FC<BacktestModalProps> = ({
                   </div>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '220px', color: '#8E9AA8', gap: '10px' }}>
-                  <span style={{ fontSize: '30px' }}>📊</span>
-                  <div style={{ fontSize: '12px' }}>Configure parameters above and click <strong>RUN BACKTEST</strong> to execute fill simulation.</div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '220px', color: '#8E9AA8', gap: '8px' }}>
+                  <div style={{ fontSize: '12px' }}>Configure parameters above and click <strong>RUN BACKTEST</strong> to execute fill simulation on real bars.</div>
                 </div>
               )}
             </div>
@@ -481,7 +493,7 @@ export const BacktestModal: React.FC<BacktestModalProps> = ({
                   cursor: loading ? 'not-allowed' : 'pointer',
                 }}
               >
-                {loading ? 'SWEEPING MATRIX...' : '⚡ RUN GRID OPTIMIZER'}
+                {loading ? 'SWEEPING MATRIX...' : 'RUN GRID OPTIMIZER'}
               </button>
             </div>
 
@@ -607,8 +619,7 @@ export const BacktestModal: React.FC<BacktestModalProps> = ({
                 </div>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '240px', color: '#8E9AA8', gap: '10px' }}>
-                <span style={{ fontSize: '30px' }}>⚡</span>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '240px', color: '#8E9AA8', gap: '8px' }}>
                 <div style={{ fontSize: '12px' }}>Click <strong>RUN GRID OPTIMIZER</strong> to compute the 36-parameter sweep surface.</div>
               </div>
             )}

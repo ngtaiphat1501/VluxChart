@@ -16,7 +16,7 @@ interface LeftToolsSidebarProps {
   onToggleMagnet?: () => void;
 }
 
-const COLOR_PALETTE = ['#00E676', '#00E5FF', '#FFD600', '#FF4081', '#A855F7', '#F97316', '#38BDF8', '#FFFFFF'];
+const COLOR_PALETTE = ['#00E676', '#00E5FF', '#FFD600', '#FF4081', '#A855F7', '#F97316', '#94A3B8', '#FFFFFF'];
 
 export const LeftToolsSidebar: React.FC<LeftToolsSidebarProps> = ({
   activeTool,
@@ -84,7 +84,7 @@ export const LeftToolsSidebar: React.FC<LeftToolsSidebarProps> = ({
           style={btnStyle(false)}
           title="Tự động căn chỉnh khung nhìn (Double-click biểu đồ)"
         >
-          🔍
+          ⤢
         </button>
 
         {/* 3. Undo Last Drawing */}
@@ -143,6 +143,23 @@ export const LeftToolsSidebar: React.FC<LeftToolsSidebarProps> = ({
           ▭
         </button>
 
+        {/* 8B. ATAS / Sierra Chart Fixed Range Volume Profile (FRVP) */}
+        <button
+          onClick={() => onSelectTool('fixed_range_vp')}
+          data-testid="tool-fixed-range-vp"
+          style={{
+            ...btnStyle(activeTool === 'fixed_range_vp'),
+            fontSize: '9.5px',
+            fontWeight: 900,
+            letterSpacing: '-0.3px',
+            color: activeTool === 'fixed_range_vp' ? '#07090E' : '#38BDF8',
+            border: activeTool === 'fixed_range_vp' ? '1px solid #38BDF8' : '1px solid rgba(56, 189, 248, 0.28)',
+          }}
+          title="Fixed Range Volume Profile — Kéo 2 điểm đo POC, VAH/VAL 70% & Delta bất kỳ vùng sóng nào (Chuẩn ATAS / Sierra Chart)"
+        >
+          VP
+        </button>
+
         {/* 9. Fibonacci Retracement */}
         <button
           onClick={() => onSelectTool('fibonacci')}
@@ -177,10 +194,10 @@ export const LeftToolsSidebar: React.FC<LeftToolsSidebarProps> = ({
         {/* 12. TradingView Price & Volume Range Ruler */}
         <button
           onClick={() => onSelectTool('price_range')}
-          style={btnStyle(activeTool === 'price_range')}
+          style={{ ...btnStyle(activeTool === 'price_range'), fontSize: '10px', fontWeight: 800 }}
           title="Thước Đo Biên Độ Giá, Pips, %, Số Nến & Tổng Volume/Delta (Hoặc giữ Shift + Click trên chart)"
         >
-          📏
+          Δ%
         </button>
 
         <div style={{ width: '20px', height: '1px', background: '#262932', margin: '2px 0' }} />
@@ -195,8 +212,8 @@ export const LeftToolsSidebar: React.FC<LeftToolsSidebarProps> = ({
             ...btnStyle(activeTool === 'long_position'),
             fontSize: '10px',
             fontWeight: 900,
-            color: activeTool === 'long_position' ? '#07090E' : '#00E676',
-            border: activeTool === 'long_position' ? '1px solid #00E676' : '1px solid rgba(0,230,118,0.28)',
+            color: activeTool === 'long_position' ? '#07090E' : '#10B981',
+            border: activeTool === 'long_position' ? '1px solid #10B981' : '1px solid rgba(16,185,129,0.28)',
           }}
           title="Khung Lệnh Mua Long Position R:R chuẩn TradingView (Click 1 phát đặt ngay, kéo TP/SL/Entry, đẩy lệnh sang MT5)"
         >
@@ -213,8 +230,8 @@ export const LeftToolsSidebar: React.FC<LeftToolsSidebarProps> = ({
             ...btnStyle(activeTool === 'short_position'),
             fontSize: '10px',
             fontWeight: 900,
-            color: activeTool === 'short_position' ? '#07090E' : '#FF4081',
-            border: activeTool === 'short_position' ? '1px solid #FF4081' : '1px solid rgba(255,64,129,0.28)',
+            color: activeTool === 'short_position' ? '#07090E' : '#F87171',
+            border: activeTool === 'short_position' ? '1px solid #F87171' : '1px solid rgba(248,113,113,0.28)',
           }}
           title="Khung Lệnh Bán Short Position R:R chuẩn TradingView (Click 1 phát đặt ngay, kéo TP/SL/Entry, đẩy lệnh sang MT5)"
         >
@@ -295,26 +312,26 @@ export const LeftToolsSidebar: React.FC<LeftToolsSidebarProps> = ({
         {/* Magnet Mode Toggle (Snaps to Candle OHLC / POC when active or holding Ctrl) */}
         <button
           onClick={() => onToggleMagnet?.()}
-          style={btnStyle(magnetEnabled)}
+          style={{ ...btnStyle(magnetEnabled), fontSize: '10px', fontWeight: 800 }}
           title="Chế độ Nam Châm bắt dính đỉnh/đáy OHLC & POC của nến (Hoặc giữ phím Ctrl khi vẽ)"
         >
-          🧲
+          M
         </button>
 
-        {/* Eye Visibility Toggle */}
+        {/* Visibility Toggle */}
         <button
           onClick={onToggleVisibility}
-          style={{ ...btnStyle(drawingsVisible), position: 'relative' }}
+          style={{ ...btnStyle(drawingsVisible), position: 'relative', fontSize: '11px' }}
           title={drawingsVisible ? 'Ẩn tất cả nét vẽ (Hide Drawings)' : 'Hiện tất cả nét vẽ (Show Drawings)'}
         >
-          👁
+          ◉
           {drawingCount > 0 && (
             <span
               style={{
                 position: 'absolute',
                 top: '-2px',
                 right: '-2px',
-                background: '#00E5FF',
+                background: '#38BDF8',
                 color: '#0B0D12',
                 fontSize: '8px',
                 fontWeight: 800,
@@ -328,7 +345,7 @@ export const LeftToolsSidebar: React.FC<LeftToolsSidebarProps> = ({
           )}
         </button>
 
-        {/* Trash Clear All */}
+        {/* Clear All Drawings */}
         <button
           onClick={onClearAll}
           disabled={drawingCount === 0}
@@ -336,10 +353,11 @@ export const LeftToolsSidebar: React.FC<LeftToolsSidebarProps> = ({
             ...btnStyle(false),
             color: drawingCount > 0 ? '#EF4444' : '#475569',
             opacity: drawingCount > 0 ? 1 : 0.4,
+            fontSize: '11px',
           }}
           title="Xóa toàn bộ nét vẽ trên biểu đồ"
         >
-          🗑
+          ⌫
         </button>
       </div>
     </nav>

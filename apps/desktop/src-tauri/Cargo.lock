@@ -573,14 +573,21 @@ name = "deepchart-desktop"
 version = "0.1.0"
 dependencies = [
  "app-service",
+ "chrono",
  "data-contract",
+ "dirs",
+ "flate2",
+ "hex",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+ "volume-engine",
 ]
 
 [[package]]

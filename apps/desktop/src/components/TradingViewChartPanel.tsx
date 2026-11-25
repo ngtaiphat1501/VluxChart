@@ -61,12 +61,18 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
   const instMeta = useMemo(() => getInstrumentMeta(instrumentId), [instrumentId]);
   const tickScale = instMeta.tickScale || 100;
 
-  // Combine and sort bars
-  const combinedBars = useMemo(() => {
-    const list = activeBar ? [...bars, activeBar] : [...bars];
+  const activeBarRef = useRef<BarDTO | null>(activeBar);
+  activeBarRef.current = activeBar;
+  const prevBarsLenRef = useRef<number>(0);
+
+  // Keep closed historical bars memoized separately so live activeBar ticks ONLY trigger O(1) .update(), never full .setData()!
+  const closedBarsSorted = useMemo(() => {
+    const list = [...bars];
     list.sort((a, b) => a.bar_start_us - b.bar_start_us);
     return list;
-  }, [bars, activeBar]);
+  }, [bars]);
+
+  const combinedBars = closedBarsSorted;
 
   // Current active display stats
   const currentDisplayBar = hoveredCandle || (activeBar
@@ -237,15 +243,16 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
       }
     });
 
-    // Auto-fetch continuous older bars when user scrolls back towards the past
+    // Auto-fetch continuous older bars when user scrolls or zooms back towards the past (Unlimited History)
     let isFetchingOlder = false;
     chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-      if (range && range.from < 30 && !isFetchingOlder && onLoadMoreHistory) {
+      if (range && range.from < 60 && !isFetchingOlder && onLoadMoreHistory) {
         isFetchingOlder = true;
-        onLoadMoreHistory();
-        setTimeout(() => {
-          isFetchingOlder = false;
-        }, 1200);
+        Promise.resolve(onLoadMoreHistory()).finally(() => {
+          setTimeout(() => {
+            isFetchingOlder = false;
+          }, 350);
+        });
       }
     });
 
@@ -276,9 +283,15 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
     const volumeData: HistogramData<UTCTimestamp>[] = [];
     const vwapData: { time: UTCTimestamp; value: number }[] = [];
 
-    // Filter, validate, and convert bars
-    for (const b of combinedBars) {
-      if (!b.open_ticks || !b.high_ticks || !b.low_ticks || !b.close_ticks) continue;
+    const fullSeries = activeBarRef.current
+      ? [...combinedBars, activeBarRef.current]
+      : combinedBars;
+
+    // Filter, validate, and convert bars (including active live forming candle & signed Synthetic spreads!)
+    const isSynth = instrumentId.startsWith('SYNTH:');
+    for (const b of fullSeries) {
+      if (b.bar_start_us <= 0 || !Number.isFinite(b.close_ticks)) continue;
+      if (!isSynth && (!b.open_ticks || !b.high_ticks || !b.low_ticks || !b.close_ticks)) continue;
       const t = Math.floor(b.bar_start_us / 1000000) as UTCTimestamp;
       if (seenTimes.has(t)) continue;
       seenTimes.add(t);
@@ -314,6 +327,11 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
     }
 
     try {
+      const prevRange = chartInstanceRef.current?.timeScale().getVisibleLogicalRange();
+      const prevLen = prevBarsLenRef.current;
+      const prependedDelta = prevLen > 0 && candleData.length > prevLen + 5 ? candleData.length - prevLen : 0;
+      prevBarsLenRef.current = candleData.length;
+
       candleSeriesRef.current.applyOptions({
         priceFormat: {
           type: 'price',
@@ -341,6 +359,13 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
         } else {
           vwapSeriesRef.current.setData([]);
         }
+      }
+
+      if (prependedDelta > 0 && prevRange && chartInstanceRef.current) {
+        chartInstanceRef.current.timeScale().setVisibleLogicalRange({
+          from: prevRange.from + prependedDelta,
+          to: prevRange.to + prependedDelta,
+        });
       }
     } catch (e) {
       console.warn('[TradingViewChart] setData error:', e);
@@ -430,7 +455,7 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
             <button
               style={{
                 background: '#1F2C3F',
-                color: '#00E5FF',
+                color: '#38BDF8',
                 border: 'none',
                 borderRadius: '3px',
                 padding: '2px 8px',
@@ -440,7 +465,7 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
               }}
               title="Khung TradingView chuẩn: Kéo thả chart, co giãn trục giá và trục thời gian"
             >
-              🕯 TRADINGVIEW
+              CANDLES
             </button>
             {onSwitchToFootprint && (
               <button
@@ -452,12 +477,12 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
                   borderRadius: '3px',
                   padding: '2px 8px',
                   fontSize: '11px',
-                  fontWeight: 500,
+                  fontWeight: 600,
                   cursor: 'pointer',
                 }}
                 title="Chuyển sang biểu đồ nến cụm Footprint Order Flow"
               >
-                👣 FOOTPRINT
+                FOOTPRINT
               </button>
             )}
           </div>
@@ -522,7 +547,7 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
               onClick={onLoadMoreHistory}
               style={{
                 background: '#182231',
-                color: '#00E5FF',
+                color: '#38BDF8',
                 border: '1px solid #283241',
                 borderRadius: '4px',
                 padding: '2px 8px',
@@ -530,9 +555,9 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
                 fontWeight: 600,
                 cursor: 'pointer',
               }}
-              title="Tải thêm 200 nến cũ từ sàn Bybit"
+              title="Nạp thêm dữ liệu nến lịch sử cũ hơn"
             >
-              ⏪ +200 Nến Cũ
+              + Nạp Lịch Sử
             </button>
           )}
 
@@ -541,16 +566,16 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
             onClick={() => setShowVolume((prev) => !prev)}
             style={{
               background: showVolume ? '#1F2C3F' : '#121923',
-              color: showVolume ? '#00E676' : '#78889B',
+              color: showVolume ? '#10B981' : '#78889B',
               border: '1px solid #283241',
               borderRadius: '4px',
               padding: '2px 7px',
               fontSize: '10.5px',
-              fontWeight: 600,
+              fontWeight: 700,
               cursor: 'pointer',
             }}
           >
-            📊 Vol
+            VOL
           </button>
 
           {/* VWAP Overlay Toggle */}
@@ -558,16 +583,16 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
             onClick={() => setShowVwapLine((prev) => !prev)}
             style={{
               background: showVwapLine ? '#1F2C3F' : '#121923',
-              color: showVwapLine ? '#FFD600' : '#78889B',
+              color: showVwapLine ? '#F59E0B' : '#78889B',
               border: '1px solid #283241',
               borderRadius: '4px',
               padding: '2px 7px',
               fontSize: '10.5px',
-              fontWeight: 600,
+              fontWeight: 700,
               cursor: 'pointer',
             }}
           >
-            ⚡ VWAP
+            VWAP
           </button>
 
           {/* Auto-Scale / Fit Button */}
@@ -603,34 +628,6 @@ export const TradingViewChartPanel: React.FC<TradingViewChartPanelProps> = ({
           position: 'relative',
         }}
       />
-
-      {/* Floating Bottom Scale Interaction Tip */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: '26px',
-          left: '12px',
-          background: 'rgba(14, 19, 28, 0.75)',
-          backdropFilter: 'blur(4px)',
-          border: '1px solid rgba(40, 50, 65, 0.5)',
-          borderRadius: '4px',
-          padding: '2px 8px',
-          fontSize: '10px',
-          color: '#64748B',
-          pointerEvents: 'none',
-          zIndex: 5,
-          display: 'flex',
-          gap: '8px',
-        }}
-      >
-        <span>💡 <b>Kéo chart:</b> Di chuyển (Pan)</span>
-        <span>•</span>
-        <span><b>Kéo trục giá bên phải:</b> Co / Giãn độ cao</span>
-        <span>•</span>
-        <span><b>Kéo trục thời gian đáy:</b> Co / Giãn khoảng cách nến</span>
-        <span>•</span>
-        <span><b>Lăn chuột:</b> Phóng to / Thu nhỏ</span>
-      </div>
     </div>
   );
 };

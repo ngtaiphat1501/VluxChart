@@ -41,6 +41,9 @@ pub fn normal_cdf(x: f64) -> f64 {
 
 /// Computes Black-Scholes European Call price.
 pub fn black_scholes_call(spot: f64, strike: f64, t_years: f64, rate: f64, sigma: f64) -> f64 {
+    if spot <= 0.0 || strike <= 0.0 {
+        return (spot - strike).max(0.0);
+    }
     if t_years <= 0.0 {
         return (spot - strike).max(0.0);
     }
@@ -55,6 +58,9 @@ pub fn black_scholes_call(spot: f64, strike: f64, t_years: f64, rate: f64, sigma
 
 /// Computes Black-Scholes European Put price.
 pub fn black_scholes_put(spot: f64, strike: f64, t_years: f64, rate: f64, sigma: f64) -> f64 {
+    if spot <= 0.0 || strike <= 0.0 {
+        return (strike - spot).max(0.0);
+    }
     if t_years <= 0.0 {
         return (strike - spot).max(0.0);
     }

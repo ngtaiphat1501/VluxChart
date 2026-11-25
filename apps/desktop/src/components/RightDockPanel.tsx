@@ -304,10 +304,21 @@ export const RightDockPanel: React.FC<RightDockPanelProps> = ({
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px' }}>
                 <span style={{ color: '#E2E8F0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#089981' }} />
-                  MT5 {mt5Account.broker} (#{mt5Account.login})
+                  <span
+                    style={{
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      background: mt5Account.isRealMt5Terminal && mt5Account.login ? '#089981' : '#F59E0B',
+                    }}
+                  />
+                  {mt5Account.isRealMt5Terminal && mt5Account.login
+                    ? `MT5 ${mt5Account.broker} (#${mt5Account.login})`
+                    : 'MT5 · Chưa kết nối'}
                 </span>
-                <span style={{ color: '#64748B', fontSize: '9px' }}>1:{mt5Account.leverage}</span>
+                <span style={{ color: '#64748B', fontSize: '9px' }}>
+                  {mt5Account.isRealMt5Terminal && mt5Account.login ? `1:${mt5Account.leverage}` : 'Click kết nối'}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#94A3B8', fontFamily: 'monospace' }}>
                 <span>{symbolShort}</span>

@@ -9,6 +9,7 @@ export type DrawingTool =
   | 'trendline'
   | 'arrow'
   | 'imbalance_box'
+  | 'fixed_range_vp'
   | 'fibonacci'
   | 'long_position'
   | 'short_position'
@@ -51,10 +52,10 @@ export interface ChartDrawing {
 
 export const FIBONACCI_LEVELS = [
   { ratio: 0.0, label: '0', color: '#94A3B8' },
-  { ratio: 0.236, label: '0.236', color: '#F87171' },
-  { ratio: 0.382, label: '0.382', color: '#FBBF24' },
-  { ratio: 0.5, label: '0.5', color: '#4ADE80' },
-  { ratio: 0.618, label: '0.618', color: '#2DD4BF' },
+  { ratio: 0.236, label: '0.236', color: '#FF5252' },
+  { ratio: 0.382, label: '0.382', color: '#FFD600' },
+  { ratio: 0.5, label: '0.5', color: '#00E676' },
+  { ratio: 0.618, label: '0.618', color: '#00E5FF' },
   { ratio: 0.786, label: '0.786', color: '#38BDF8' },
   { ratio: 1.0, label: '1', color: '#A855F7' },
 ];

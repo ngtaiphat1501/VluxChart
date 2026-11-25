@@ -60,9 +60,8 @@ export const TimeAndSalesTape: React.FC<TimeAndSalesTapeProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ fontSize: '12px' }}>⚡</span>
-          <span style={{ fontSize: '11px', fontWeight: 700, color: '#FFF' }}>TIME & SALES</span>
-          <span style={{ fontSize: '9px', background: '#252932', color: '#00E676', padding: '1px 4px', borderRadius: '3px' }}>
+          <span style={{ fontSize: '11px', fontWeight: 800, color: '#E2E8F0', letterSpacing: '0.3px' }}>TIME &amp; SALES</span>
+          <span style={{ fontSize: '9px', background: 'rgba(16, 185, 129, 0.14)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#34D399', padding: '1px 5px', borderRadius: '3px', fontWeight: 700 }}>
             LIVE
           </span>
         </div>
@@ -82,7 +81,7 @@ export const TimeAndSalesTape: React.FC<TimeAndSalesTapeProps> = ({
               }}
               title={isFloating ? 'Dock panel to sidebar' : 'Pop out into floating window'}
             >
-              {isFloating ? '📌' : '↗'}
+              {isFloating ? '↙' : '↗'}
             </button>
           )}
           {onClose && (
@@ -117,7 +116,7 @@ export const TimeAndSalesTape: React.FC<TimeAndSalesTapeProps> = ({
           { label: 'ALL', val: 0 },
           { label: '≥10', val: 10 },
           { label: '≥100', val: 100 },
-          { label: '🐋', val: 500 },
+          { label: '≥500', val: 500 },
         ].map((btn) => (
           <button
             key={btn.label}

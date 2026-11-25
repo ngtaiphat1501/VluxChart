@@ -12,7 +12,7 @@ interface DrawingToolbarProps {
   drawingCount: number;
 }
 
-const COLOR_PALETTE = ['#00E5FF', '#00E676', '#FFD700', '#FF5252', '#E040FB', '#FFFFFF'];
+const COLOR_PALETTE = ['#00E5FF', '#00E676', '#FFD600', '#FF4081', '#E040FB', '#FFFFFF'];
 
 export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
   activeTool,

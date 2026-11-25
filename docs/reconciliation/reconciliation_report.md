@@ -3,13 +3,13 @@
 | Field | Detail |
 |---|---|
 | **Instrument** | `BINANCE:USD_M_PERP:XAUUSDT:PERP` |
-| **Window Boundary** | `2026-11-22T09:09:00Z` (`[1795338540000, 1795338600000)`) |
-| **Executed Trades** | `64` |
-| **Official Kline Volume** | `17.723` |
-| **Aggregated Total Volume** | `17.723` |
-| **Official Taker Buy** | `11.525` |
-| **Aggregated Buy Volume** | `11.525` |
-| **Aggregated Sell Volume** | `6.198` |
+| **Window Boundary** | `2026-11-24T17:36:00Z` (`[1795541760000, 1795541820000)`) |
+| **Executed Trades** | `468` |
+| **Official Kline Volume** | `903.109` |
+| **Aggregated Total Volume** | `903.109` |
+| **Official Taker Buy** | `249.686` |
+| **Aggregated Buy Volume** | `249.686` |
+| **Aggregated Sell Volume** | `653.423` |
 | **Aggregated Unknown Volume** | `0` |
 | **Volume Variance** | **`0.0000%`** (Allowed: $\\le 0.10\%$) |
 | **OHLC Match** | `True` |

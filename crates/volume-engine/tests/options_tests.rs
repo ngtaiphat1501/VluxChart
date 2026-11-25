@@ -193,3 +193,16 @@ fn test_options_market_summary_with_greeks_and_smile() {
     assert!(summary.strike_greeks[0].call_greeks.delta > 0.0);
     assert!(summary.strike_greeks[0].put_greeks.delta < 0.0);
 }
+
+#[test]
+fn test_black_scholes_zero_strike_and_spot_guards() {
+    let c0 = black_scholes_call(95000.0, 0.0, 0.25, 0.03, 0.55);
+    let p0 = black_scholes_put(95000.0, 0.0, 0.25, 0.03, 0.55);
+    let c_neg = black_scholes_call(0.0, 95000.0, 0.25, 0.03, 0.55);
+    let p_neg = black_scholes_put(0.0, 95000.0, 0.25, 0.03, 0.55);
+
+    assert!(c0.is_finite() && c0 == 95000.0);
+    assert!(p0.is_finite() && p0 == 0.0);
+    assert!(c_neg.is_finite() && c_neg == 0.0);
+    assert!(p_neg.is_finite() && p_neg == 95000.0);
+}

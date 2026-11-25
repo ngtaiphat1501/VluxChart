@@ -1,7 +1,7 @@
 {
   "benchmark_id": "VIS-011-MULTI-LAYER-CANVAS-PROFILING",
   "status": "PASS",
-  "timestamp_utc": "2026-11-22T09:11:57.376Z",
+  "timestamp_utc": "2026-11-24T17:38:56.860Z",
   "environment": {
     "platform": "win32",
     "arch": "x64",
@@ -24,15 +24,15 @@
   "performance_metrics": {
     "culling_efficiency_pct": 98.28,
     "avg_visible_bars": 17.2,
-    "avg_frame_ms": 0.0664,
-    "p50_frame_ms": 0.0082,
-    "p95_frame_ms": 0.2438,
-    "p99_frame_ms": 0.6382,
-    "max_frame_ms": 4.9949,
-    "effective_fps_p95": 4102,
-    "theoretical_fps": 15055,
+    "avg_frame_ms": 0.0425,
+    "p50_frame_ms": 0.008,
+    "p95_frame_ms": 0.1591,
+    "p99_frame_ms": 0.3063,
+    "max_frame_ms": 2.2737,
+    "effective_fps_p95": 6285,
+    "theoretical_fps": 23548,
     "target_frame_budget_ms": 16.666,
     "target_fps": 60,
-    "memory_delta_mb": -0.44
+    "memory_delta_mb": 2.65
   }
 }

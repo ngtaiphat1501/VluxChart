@@ -12,19 +12,27 @@ export const RiskManagerModal: React.FC<RiskManagerModalProps> = ({
   onClose,
   instrumentId,
 }) => {
-  const [maxDailyLossUsd, setMaxDailyLossUsd] = useState<number>(500);
-  const [maxOpenLots, setMaxOpenLots] = useState<number>(2.0);
-  const [isLockoutEnabled, setIsLockoutEnabled] = useState<boolean>(true);
-  const [trailingDdPct, setTrailingDdPct] = useState<number>(3.0);
+  const initialRules = mt5BridgeService.getRiskRules();
+  const [maxDailyLossUsd, setMaxDailyLossUsd] = useState<number>(initialRules.maxDailyLossUsd);
+  const [maxOpenLots, setMaxOpenLots] = useState<number>(initialRules.maxOpenLots);
+  const [isLockoutEnabled, setIsLockoutEnabled] = useState<boolean>(initialRules.isLockoutEnabled);
+  const [trailingDdPct, setTrailingDdPct] = useState<number>(initialRules.trailingDdPct);
   const [isSavedNotice, setIsSavedNotice] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
   const mt5Acct = mt5BridgeService.getAccount();
-  const currentDailyPnl = 0; // floating from account
-  const isBreached = currentDailyPnl <= -maxDailyLossUsd;
+  const riskStatus = mt5BridgeService.getRiskStatus();
+  const currentDailyPnl = riskStatus.dailyPnlUsd;
+  const isBreached = riskStatus.isBreached || currentDailyPnl <= -maxDailyLossUsd;
 
   const handleSave = () => {
+    mt5BridgeService.saveRiskRules({
+      maxDailyLossUsd,
+      maxOpenLots,
+      isLockoutEnabled,
+      trailingDdPct,
+    });
     setIsSavedNotice(true);
     setTimeout(() => setIsSavedNotice(false), 2500);
   };
@@ -136,8 +144,8 @@ export const RiskManagerModal: React.FC<RiskManagerModalProps> = ({
             </div>
             <div>
               <div style={{ color: '#64748B', fontSize: '9px' }}>P/L HÔM NAY</div>
-              <div style={{ color: '#10B981', fontWeight: 800, fontSize: '13px' }}>
-                +$0.00
+              <div style={{ color: currentDailyPnl >= 0 ? '#10B981' : '#F87171', fontWeight: 800, fontSize: '13px' }}>
+                {currentDailyPnl >= 0 ? '+' : '-'}${Math.abs(currentDailyPnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
             <div>

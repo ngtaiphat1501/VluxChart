@@ -79,6 +79,10 @@ function standardNormalPdf(x: number): number {
   return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
 }
 
+function isTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && Boolean((window as any).__TAURI_INTERNALS__);
+}
+
 /**
  * Exact Black-Scholes Gamma for an option contract:
  * Gamma = phi(d1) / (S * sigma * sqrt(T))
@@ -91,7 +95,7 @@ function computeBlackScholesGamma(
 ): number {
   if (spot <= 0 || strike <= 0) return 0;
   const T = Math.max(timeYears, 1 / 365); // Floor at 1 day to avoid 0DTE singularity
-  const sigma = Math.max(0.15, Math.min((ivPct || 55) / 100, 3.0));
+  const sigma = Math.max(0.05, Math.min((ivPct || 20) / 100, 3.0));
   const sqrtT = Math.sqrt(T);
   const d1 = (Math.log(spot / strike) + 0.5 * sigma * sigma * T) / (sigma * sqrtT);
   return standardNormalPdf(d1) / (spot * sigma * sqrtT);
@@ -113,7 +117,27 @@ class OptionsLiveService {
     expiryFilter: OptionsExpiryFilter,
     referencePriceTicks?: number | null
   ): Promise<LiveOptionsChainResult> {
-    const spotGoldUsd = referencePriceTicks && referencePriceTicks > 50000 ? referencePriceTicks / 100 : 3860.0;
+    const spotGoldUsd =
+      referencePriceTicks && referencePriceTicks > 100_000 ? referencePriceTicks / 100 : undefined;
+
+    // 1. Primary Standalone Desktop Path: 100% Rust-Native OPRA/CBOE Gold Options Engine (Zero Python Required)
+    if (isTauriRuntime()) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const nativeChain = await invoke<LiveOptionsChainResult>('fetch_gold_options_chain', {
+          expiryFilter,
+          spotGoldUsd: spotGoldUsd ?? null,
+        });
+        if (nativeChain && nativeChain.isRealData && Array.isArray(nativeChain.strikes) && nativeChain.strikes.length > 0) {
+          return nativeChain;
+        }
+      } catch (err) {
+        console.warn('[OptionsLiveService] Rust native fetch_gold_options_chain failed, trying local fallback:', err);
+      }
+    }
+
+    // 2. Secondary Browser-Preview Fallback (when running Vite dev/preview outside Tauri)
+    const fallbackSpot = spotGoldUsd || 3630.0;
     try {
       const resp = await fetch('http://127.0.0.1:15556', {
         method: 'POST',
@@ -149,7 +173,8 @@ class OptionsLiveService {
             if (gldStrike < gldSpot * 0.82 || gldStrike > gldSpot * 1.18) continue;
 
             // Convert GLD ETF strike to exact XAU/USD Troy Ounce Strike ($10 institutional strike step)
-            const xauStrike = Math.round(((gldStrike / gldSpot) * spotGoldUsd) / 10) * 10;
+            const activeGoldSpot = spotGoldUsd || fallbackSpot;
+            const xauStrike = Math.round(((gldStrike / gldSpot) * activeGoldSpot) / 10) * 10;
             if (expMs < earliestExpMs) earliestExpMs = expMs;
             parsed.push({
               expiryMs: expMs,
@@ -157,10 +182,11 @@ class OptionsLiveService {
               type: cp,
               oi: Number(c.oi) || 0,
               vol: Number(c.v) || 0,
-              iv: Number(c.iv) || 22.0,
+              iv: Number(c.iv) || 18.5,
             });
           }
 
+          const activeGoldSpot = spotGoldUsd || fallbackSpot;
           const refNowMs = Math.min(Date.now(), earliestExpMs - 12 * 3600 * 1000);
           const dayMs = 86_400_000;
           const filtered = parsed.filter((c) => {
@@ -194,8 +220,8 @@ class OptionsLiveService {
 
           for (const c of active) {
             const timeYears = Math.max(1 / 365, (c.expiryMs - refNowMs) / (365 * dayMs));
-            const gamma = computeBlackScholesGamma(spotGoldUsd, c.strikeXau, timeYears, c.iv);
-            const gexUsd = gamma * c.oi * spotGoldUsd * spotGoldUsd * 0.01 * 10;
+            const gamma = computeBlackScholesGamma(activeGoldSpot, c.strikeXau, timeYears, c.iv);
+            const gexUsd = gamma * c.oi * activeGoldSpot * activeGoldSpot * 0.01;
             let entry = strikeMap.get(c.strikeXau);
             if (!entry) {
               entry = {
@@ -233,9 +259,9 @@ class OptionsLiveService {
           }
 
           const sorted = Array.from(strikeMap.values()).sort((a, b) => a.strike - b.strike);
-          let callWallStrike = Math.round(spotGoldUsd / 10) * 10;
+          let callWallStrike = Math.round(activeGoldSpot / 10) * 10;
           let maxCallOi = -1;
-          let putWallStrike = Math.round(spotGoldUsd / 10) * 10;
+          let putWallStrike = Math.round(activeGoldSpot / 10) * 10;
           let maxPutOi = -1;
 
           const enriched: EnrichedStrikeMetrics[] = sorted.map((s) => {
@@ -258,11 +284,11 @@ class OptionsLiveService {
               call_gex_usd: Math.round(s.callGexUsd),
               put_gex_usd: Math.round(s.putGexUsd),
               net_gex_usd: Math.round(s.callGexUsd - s.putGexUsd),
-              avg_iv: s.ivCount > 0 ? Number((s.ivSum / s.ivCount).toFixed(1)) : 22.0,
+              avg_iv: s.ivCount > 0 ? Number((s.ivSum / s.ivCount).toFixed(1)) : 18.5,
             };
           });
 
-          let maxPainTicks = Math.round(spotGoldUsd * 100);
+          let maxPainTicks = Math.round(activeGoldSpot * 100);
           let minPayout = Infinity;
           for (const cand of enriched) {
             let payout = 0;
@@ -276,13 +302,13 @@ class OptionsLiveService {
             }
           }
 
-          let zeroGammaTicks = Math.round(spotGoldUsd * 100);
+          let zeroGammaTicks = Math.round(activeGoldSpot * 100);
           let bestDist = Infinity;
           for (let i = 0; i < enriched.length - 1; i++) {
             const a = enriched[i];
             const b = enriched[i + 1];
             if ((a.net_gex_usd <= 0 && b.net_gex_usd >= 0) || (a.net_gex_usd >= 0 && b.net_gex_usd <= 0)) {
-              const dist = Math.abs(a.strike_ticks - spotGoldUsd * 100);
+              const dist = Math.abs(a.strike_ticks - activeGoldSpot * 100);
               if (dist < bestDist) {
                 bestDist = dist;
                 zeroGammaTicks = a.strike_ticks;
@@ -292,9 +318,9 @@ class OptionsLiveService {
 
           return {
             isRealData: true,
-            sourceName: `CBOE Gold Options (${active.length.toLocaleString()} HĐ) + Deribit GOLD/PAXG`,
+            sourceName: `OPRA/CBOE GLD+IAU Gold Options (${active.length.toLocaleString()} HĐ)`,
             currency: 'XAU',
-            underlyingPrice: spotGoldUsd,
+            underlyingPrice: activeGoldSpot,
             totalContractsCount: active.length,
             totalCallOi: Math.round(totalCallOi),
             totalPutOi: Math.round(totalPutOi),
@@ -314,9 +340,9 @@ class OptionsLiveService {
 
     return {
       isRealData: false,
-      sourceName: 'Đang kết nối CBOE Gold Options...',
+      sourceName: 'Đang kết nối OPRA/CBOE Gold Options...',
       currency: 'XAU',
-      underlyingPrice: spotGoldUsd,
+      underlyingPrice: fallbackSpot,
       totalContractsCount: 0,
       totalCallOi: 0,
       totalPutOi: 0,
@@ -440,7 +466,7 @@ class OptionsLiveService {
                 if (!expCode) continue;
                 combinedList.push({
                   instrument_name: `${currency}-${expCode}-${parts[2]}-${parts[3]}`,
-                  open_interest: vol * 1.5,
+                  open_interest: 0,
                   volume: vol,
                   mark_iv: 55,
                   underlying_price: refUnderlying,

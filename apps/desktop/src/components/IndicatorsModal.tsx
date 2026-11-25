@@ -11,10 +11,13 @@ export interface IndicatorConfigState {
   showOfVp: boolean;
   showOfDeltaP: boolean;
   showBarHeadStats: boolean;
+  showClusterSearch?: boolean;
+  showUnfinishedAuction?: boolean;
 
   // Structure & HTF Reference Levels
   showPriorDayLevels: boolean;
   showVolumeProfile: boolean;
+  showTpoProfile?: boolean;
   showValueAreaLines: boolean;
   showVwap: boolean;
   showNakedPoc: boolean;
@@ -147,8 +150,44 @@ const INDICATOR_CATALOG: IndicatorItemDef[] = [
     description:
       'Nhãn thông số tóm tắt Delta và Tổng khối lượng đặt ngay phía trên râu nến cao nhất, giúp đọc nhanh giá trị mà không cần nhìn xuống cửa sổ phụ.',
   },
+  {
+    key: 'showClusterSearch',
+    name: 'ATAS Cluster Search (Tô nổi cụm Volume Cá Mập)',
+    shortCode: 'CLS-SRCH',
+    category: 'clusters',
+    zone: 'Chart Overlay',
+    zoneDesc: 'Khung viền sáng đánh dấu các ô Footprint đột biến khối lượng tổ chức',
+    badge: 'ATAS Pro',
+    formula: 'CellVol ≥ max(UserThreshold, 2.6 × BarAvgCellVol)',
+    description:
+      'Tự động dò tìm và đóng khung các mức giá trong lòng nến có khối lượng khớp đột biến gấp ≥ 2.6 lần trung bình nến (cụm lệnh hấp thụ hoặc bứt phá của dòng tiền lớn).',
+  },
+  {
+    key: 'showUnfinishedAuction',
+    name: 'Unfinished Auction Detector (Đấu giá dở dang đỉnh/đáy)',
+    shortCode: 'UA-EXT',
+    category: 'clusters',
+    zone: 'Chart Overlay',
+    zoneDesc: 'Tia nam châm tại đỉnh/đáy nến chưa cạn kiệt thanh khoản (không có số 0)',
+    badge: 'Sierra / ATAS',
+    formula: 'High: Bid > 0 & Ask > 0 | Low: Bid > 0 & Ask > 0 (Unmitigated)',
+    description:
+      'Chuẩn đấu giá hai chiều Sierra Chart / ATAS: Đỉnh hoàn tất phải có Bid = 0, Đáy hoàn tất phải có Ask = 0. Khi cả hai phe Mua/Bán vẫn khớp mạnh ngay đỉnh/đáy mà chưa cạn kiệt, mức giá đó trở thành nam châm hút giá quay lại.',
+  },
 
   // ─── 3. STRUCTURE & HTF LEVELS ───
+  {
+    key: 'showTpoProfile',
+    name: 'TPO Market Profile (Chữ cái A-Z, IBH/IBL 60p & Single Prints)',
+    shortCode: 'TPO-MP',
+    category: 'structure',
+    zone: 'Chart Overlay',
+    zoneDesc: 'Cấu trúc Market Profile 30 phút/kỳ kèm Initial Balance và vùng Single Print',
+    badge: 'CBOT / Sierra',
+    formula: '30m Periods [A..Z] | IB = High/Low(A+B) | Single Print = Interior TPO == 1',
+    description:
+      'Hiển thị hồ sơ thời gian-giá (Time-Price Opportunity) chia theo chu kỳ 30 phút (A, B, C...), tự động kẻ biên độ cân bằng đầu phiên 60 phút (IBH / IBL) và tô nổi các vùng rỗng thanh khoản Single Prints.',
+  },
   {
     key: 'showPriorDayLevels',
     name: 'HTF Prior Day Reference Levels (PDH, PDL, PDPOC, VA)',
@@ -260,18 +299,6 @@ const INDICATOR_CATALOG: IndicatorItemDef[] = [
       'Hiển thị các bức tường lệnh chờ Limit lớn và phát hiện sự kiện hấp thụ (khối lượng thị trường khổng lồ bị chặn đứng không thể đẩy giá đi tiếp).',
   },
   {
-    key: 'showOptions',
-    name: 'Options Strikes & Gamma Exposure (GEX / Walls)',
-    shortCode: 'STRIKES',
-    category: 'liquidity',
-    zone: 'Chart Overlay',
-    zoneDesc: 'Các mốc quyền chọn thực tế: Call Wall, Put Wall, Zero Gamma Flip',
-    badge: 'Deribit',
-    formula: 'GEX = S × Γ × OI × 100 | Call Wall, Put Wall, Zero Gamma Flip',
-    description:
-      'Các mốc thực tế từ thị trường quyền chọn Deribit: Call Wall, Put Wall, Zero Gamma Flip. Giúp dự báo biên độ dao động và điểm nén giá của Market Maker hedging.',
-  },
-  {
     key: 'showBubbles',
     name: 'Large Trade Volume Bubbles',
     shortCode: 'BUBBLES',
@@ -337,15 +364,15 @@ const INDICATOR_CATALOG: IndicatorItemDef[] = [
   // ─── 6. OPTIONS CHAIN & SUITE ───
   {
     key: 'showOptions',
-    name: 'Options Key Levels (Call/Put Walls & Max Pain)',
-    shortCode: 'OPT-WALLS',
+    name: 'Gold & Crypto Options Key Levels (Call/Put Walls, Zero γ, Max Pain)',
+    shortCode: 'OPT/GEX',
     category: 'options',
     zone: 'Chart Overlay',
-    zoneDesc: 'Đường ngang đánh dấu Call Wall, Put Wall, Zero Gamma Flip',
-    badge: 'Deribit Live',
-    formula: 'Call Wall = Max(Call OI) | Put Wall = Max(Put OI) | Max Pain',
+    zoneDesc: 'Đường ngang đánh dấu Call Wall, Put Wall, Zero Gamma Flip & Max Pain thực tế',
+    badge: 'CBOE Gold · Deribit',
+    formula: 'OPRA GLD/IAU (Rust Native Black-Scholes IV/Γ) + Deribit L3',
     description:
-      'Các mốc thực tế từ thị trường quyền chọn Deribit: Call Wall, Put Wall, Zero Gamma Flip. Giúp dự báo biên độ dao động và điểm nén giá của Market Maker hedging.',
+      'Hiển thị trực tiếp Call Wall, Put Wall, Zero Gamma Flip và Max Pain của Vàng (OPRA/CBOE GLD·IAU chạy Rust Native) và Crypto (Deribit) ngay trên biểu đồ.',
   },
   {
     key: 'showOptionsExpectedMove',

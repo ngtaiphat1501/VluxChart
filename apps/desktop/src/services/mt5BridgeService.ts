@@ -64,9 +64,24 @@ export interface Mt5OrderTicket {
   linkedDrawingId?: string;
 }
 
-const MT5_ACCOUNT_STORAGE_KEY = 'deepchart_mt5_account_v2';
+export interface RiskManagerRules {
+  maxDailyLossUsd: number;
+  maxOpenLots: number;
+  isLockoutEnabled: boolean;
+  trailingDdPct: number;
+}
+
+const MT5_ACCOUNT_STORAGE_KEY = 'deepchart_mt5_account_v3';
 const MT5_TICKETS_STORAGE_KEY = 'deepchart_mt5_tickets_v2';
+const RISK_RULES_STORAGE_KEY = 'deepchart_risk_rules_v1';
 const MT5_HTTP_BRIDGE_URL = 'http://127.0.0.1:15556';
+
+const DEFAULT_RISK_RULES: RiskManagerRules = {
+  maxDailyLossUsd: 500,
+  maxOpenLots: 2.0,
+  isLockoutEnabled: true,
+  trailingDdPct: 3.0,
+};
 
 export const MT5_BROKER_SERVERS: { broker: string; servers: string[] }[] = [
   {
@@ -101,23 +116,23 @@ export const MT5_BROKER_SERVERS: { broker: string; servers: string[] }[] = [
 
 const DEFAULT_MT5_ACCOUNT: Mt5AccountConfig = {
   broker: 'Exness',
-  server: 'Exness-MT5Trial8',
-  login: '279650659',
-  accountName: 'Đang đồng bộ MT5 Terminal...',
-  leverage: 500,
+  server: '',
+  login: '',
+  accountName: 'Chưa kết nối MetaTrader 5',
+  leverage: 100,
   currency: 'USD',
-  balance: 98110.25,
-  balanceUsd: 98110.25,
-  equityUsd: 129362.65,
-  floatingPnlUsd: 31252.4,
-  marginFreeUsd: 128742.44,
+  balance: 0,
+  balanceUsd: 0,
+  equityUsd: 0,
+  floatingPnlUsd: 0,
+  marginFreeUsd: 0,
   bridgeUrl: MT5_HTTP_BRIDGE_URL,
-  isConnected: true,
-  connected: true,
-  isRealMt5Terminal: true,
-  marketOpen: true,
+  isConnected: false,
+  connected: false,
+  isRealMt5Terminal: false,
+  marketOpen: false,
   connectionMode: 'LOCAL_WS_BRIDGE',
-  lastPingMs: 12,
+  lastPingMs: 0,
   lastError: null,
   lastOrderFeedback: null,
 };
@@ -127,16 +142,67 @@ type Listener = () => void;
 class Mt5BridgeService {
   private account: Mt5AccountConfig;
   private tickets: Mt5OrderTicket[];
+  private riskRules: RiskManagerRules;
   private listeners: Set<Listener> = new Set();
   private realizedDailyPnlUsd: number = 0;
+  private bridgeUnavailableUntilMs: number = 0;
 
   constructor() {
     this.account = this.loadAccount();
     this.tickets = this.loadTickets();
-    // Immediately synchronize with the user's real installed MetaTrader 5 terminal
+    this.riskRules = this.loadRiskRules();
+    // Attempt non-blocking sync with local MT5 terminal if installed
     setTimeout(() => {
       this.syncFromRealMt5();
-    }, 50);
+    }, 150);
+  }
+
+  private loadRiskRules(): RiskManagerRules {
+    try {
+      const raw = localStorage.getItem(RISK_RULES_STORAGE_KEY);
+      if (raw) {
+        return { ...DEFAULT_RISK_RULES, ...JSON.parse(raw) };
+      }
+    } catch {}
+    return { ...DEFAULT_RISK_RULES };
+  }
+
+  getRiskRules(): RiskManagerRules {
+    return { ...this.riskRules };
+  }
+
+  saveRiskRules(patch: Partial<RiskManagerRules>): RiskManagerRules {
+    this.riskRules = {
+      ...this.riskRules,
+      ...patch,
+      maxDailyLossUsd: Math.max(10, Number(patch.maxDailyLossUsd ?? this.riskRules.maxDailyLossUsd)),
+      maxOpenLots: Math.max(0.01, Number(patch.maxOpenLots ?? this.riskRules.maxOpenLots)),
+      trailingDdPct: Math.max(0.5, Number(patch.trailingDdPct ?? this.riskRules.trailingDdPct)),
+    };
+    try {
+      localStorage.setItem(RISK_RULES_STORAGE_KEY, JSON.stringify(this.riskRules));
+    } catch {}
+    this.notify();
+    return this.getRiskRules();
+  }
+
+  getRiskStatus(): { dailyPnlUsd: number; openLots: number; isBreached: boolean; reason: string | null } {
+    const dailyPnlUsd = Number(((this.account.floatingPnlUsd || 0) + this.realizedDailyPnlUsd).toFixed(2));
+    const openLots = Number(
+      this.tickets
+        .filter((t) => t.status === 'OPEN')
+        .reduce((sum, t) => sum + (t.lots || 0), 0)
+        .toFixed(2)
+    );
+    if (this.riskRules.isLockoutEnabled && dailyPnlUsd <= -this.riskRules.maxDailyLossUsd) {
+      return {
+        dailyPnlUsd,
+        openLots,
+        isBreached: true,
+        reason: `Chạm giới hạn lỗ ngày (-$${this.riskRules.maxDailyLossUsd.toLocaleString()})`,
+      };
+    }
+    return { dailyPnlUsd, openLots, isBreached: false, reason: null };
   }
 
   private normalizeAccount(acct: Partial<Mt5AccountConfig>): Mt5AccountConfig {
@@ -145,9 +211,9 @@ class Mt5BridgeService {
         ? acct.balanceUsd
         : typeof acct.balance === 'number'
         ? acct.balance
-        : 98110.25;
+        : 0;
     const eq = typeof acct.equityUsd === 'number' ? acct.equityUsd : bal;
-    const conn = acct.connected ?? acct.isConnected ?? true;
+    const conn = acct.connected ?? acct.isConnected ?? false;
     return {
       ...DEFAULT_MT5_ACCOUNT,
       ...acct,
@@ -260,11 +326,22 @@ class Mt5BridgeService {
    * 1. Fast persistent local HTTP server (http://127.0.0.1:15556)
    * 2. Native Tauri command (`mt5_bridge_exec`) fallback
    */
-  async callMt5Rpc(payload: Record<string, any>): Promise<any> {
+  async callMt5Rpc(
+    payload: Record<string, any>,
+    options?: { allowCliFallback?: boolean; timeoutMs?: number }
+  ): Promise<any> {
+    const allowCli = options?.allowCliFallback ?? false;
+    const timeoutMs = options?.timeoutMs ?? 1200;
+
+    // Circuit breaker: avoid freezing UI on repeated background polls when MT5 bridge daemon isn't running
+    if (!allowCli && Date.now() < this.bridgeUnavailableUntilMs) {
+      return { ok: false, error: 'MT5 Local Bridge tạm thời chưa phản hồi (cooldown)' };
+    }
+
     // 1. Try local persistent HTTP daemon first (< 5ms latency)
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3500);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       const resp = await fetch(MT5_HTTP_BRIDGE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -273,25 +350,33 @@ class Mt5BridgeService {
       });
       clearTimeout(timeout);
       if (resp.ok) {
+        this.bridgeUnavailableUntilMs = 0;
         return await resp.json();
       }
-    } catch {
-      // Fall through to Tauri native command if HTTP daemon is not reachable
+    } catch (err: any) {
+      // Only set cooldown on genuine connection refusal (not on a slow historical bars query)
+      const isAbort = err && (err.name === 'AbortError' || String(err).includes('aborted'));
+      if (!allowCli && !isAbort && payload.action !== 'bars') {
+        this.bridgeUnavailableUntilMs = Date.now() + 6_000;
+      }
     }
 
-    // 2. Try Tauri native IPC command (`mt5_bridge_exec`)
-    try {
-      if ((window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const outStr = await invoke<string>('mt5_bridge_exec', {
-          payload: JSON.stringify(payload),
-        });
-        if (outStr) {
-          return JSON.parse(outStr);
+    // 2. Only invoke cold Python CLI subprocess when explicitly requested (login/order/manual sync)
+    if (allowCli) {
+      try {
+        if ((window as any).__TAURI_INTERNALS__) {
+          const { invoke } = await import('@tauri-apps/api/core');
+          const outStr = await invoke<string>('mt5_bridge_exec', {
+            payload: JSON.stringify(payload),
+          });
+          if (outStr) {
+            this.bridgeUnavailableUntilMs = 0;
+            return JSON.parse(outStr);
+          }
         }
+      } catch (err) {
+        return { ok: false, error: String(err) };
       }
-    } catch (err) {
-      return { ok: false, error: String(err) };
     }
 
     return { ok: false, error: 'Không thể kết nối tới MT5 Local Bridge (http://127.0.0.1:15556)' };
@@ -330,11 +415,7 @@ class Mt5BridgeService {
 
     let ticketsChanged = false;
     if (Array.isArray(state.tickets)) {
-      const localSimTickets = this.tickets.filter(
-        (t) => t.ticket >= 80000000 && String(t.comment || '').includes('[SIM]')
-      );
-      const realTickets = state.tickets.map((t: any) => this.normalizeTicket(t));
-      const mergedTickets = [...realTickets, ...localSimTickets];
+      const mergedTickets = state.tickets.map((t: any) => this.normalizeTicket(t));
 
       if (mergedTickets.length !== this.tickets.length) {
         ticketsChanged = true;
@@ -390,12 +471,16 @@ class Mt5BridgeService {
     server: string;
     broker?: string;
   }): Promise<{ ok: boolean; error?: string }> {
-    const res = await this.callMt5Rpc({
-      action: 'login',
-      login: params.login,
-      password: params.password || '',
-      server: params.server,
-    });
+    this.bridgeUnavailableUntilMs = 0;
+    const res = await this.callMt5Rpc(
+      {
+        action: 'login',
+        login: params.login,
+        password: params.password || '',
+        server: params.server,
+      },
+      { allowCliFallback: true, timeoutMs: 3000 }
+    );
     if (res && res.ok && res.account) {
       this.applyBridgeAccountState(res);
       this.account.lastOrderFeedback = {
@@ -423,7 +508,9 @@ class Mt5BridgeService {
   async fetchRealMt5Bars(
     instrumentId: string,
     timeframeUs: number,
-    count: number = 250
+    count: number = 1500,
+    endMs?: number,
+    deepTicks: boolean = false
   ): Promise<{
     ok: boolean;
     bars: BarDTO[];
@@ -432,12 +519,18 @@ class Mt5BridgeService {
     lastTickTimeSec?: number;
     lastTickTimeMsc?: number;
   }> {
-    const res = await this.callMt5Rpc({
-      action: 'bars',
-      instrumentId,
-      timeframeUs,
-      count,
-    });
+    this.bridgeUnavailableUntilMs = 0;
+    const res = await this.callMt5Rpc(
+      {
+        action: 'bars',
+        instrumentId,
+        timeframeUs,
+        count,
+        ...(endMs && endMs > 0 ? { endMs } : {}),
+        ...(deepTicks ? { deepTicks: true } : {}),
+      },
+      { allowCliFallback: true, timeoutMs: deepTicks ? 20000 : 12000 }
+    );
     if (res && res.ok && Array.isArray(res.bars) && res.bars.length > 0) {
       this.account.marketOpen = Boolean(res.marketOpen);
       this.account.isRealMt5Terminal = true;
@@ -456,7 +549,8 @@ class Mt5BridgeService {
 
   async pollRealMt5Tick(
     instrumentId: string,
-    lastTimeMsc: number
+    lastTimeMsc: number,
+    timeframeUs: number = 60_000_000
   ): Promise<{
     ok: boolean;
     marketOpen: boolean;
@@ -464,11 +558,14 @@ class Mt5BridgeService {
     lastTickTimeMsc: number;
     trades: TradeEventDTO[];
     orderBook: OrderBookSnapshotDTO | null;
+    liveBar?: Partial<BarDTO> | null;
+    prevClosedBar?: Partial<BarDTO> | null;
   }> {
     const res = await this.callMt5Rpc({
       action: 'poll_tick',
       instrumentId,
       lastTimeMsc,
+      timeframeUs,
     });
     if (res && res.ok) {
       if (res.accountState && res.accountState.ok) {
@@ -482,6 +579,8 @@ class Mt5BridgeService {
         lastTickTimeMsc: Number(res.lastTickTimeMsc || lastTimeMsc),
         trades: (res.trades || []) as TradeEventDTO[],
         orderBook: (res.orderBook || null) as OrderBookSnapshotDTO | null,
+        liveBar: res.liveBar || null,
+        prevClosedBar: res.prevClosedBar || null,
       };
     }
     return {
@@ -490,6 +589,8 @@ class Mt5BridgeService {
       lastTickTimeMsc: lastTimeMsc,
       trades: [],
       orderBook: null,
+      liveBar: null,
+      prevClosedBar: null,
     };
   }
 
@@ -521,6 +622,61 @@ class Mt5BridgeService {
     linkedDrawingId?: string;
   }): Mt5OrderTicket {
     const inst = getInstrumentMeta(params.instrumentId);
+
+    // ATAS Risk Manager Guard: Hard lockout if Daily Max Loss breached or Max Open Lots exceeded
+    const riskStatus = this.getRiskStatus();
+    if (riskStatus.isBreached) {
+      this.account.lastOrderFeedback = {
+        ok: false,
+        message: `🛡 RISK LOCKOUT: ${riskStatus.reason}. Lệnh bị chặn để bảo vệ tài khoản.`,
+        timestamp: Date.now(),
+      };
+      this.notify();
+      return {
+        ticket: 0,
+        instrumentId: params.instrumentId,
+        symbol: inst.symbol,
+        side: params.side,
+        orderType: params.orderType,
+        status: 'CLOSED',
+        isFilled: false,
+        lots: 0,
+        entryPriceTicks: Math.round(params.entryPriceTicks),
+        slPriceTicks: null,
+        tpPriceTicks: null,
+        slTicks: null,
+        tpTicks: null,
+        openTimeUs: Date.now() * 1000,
+        comment: 'RISK_LOCKOUT_REJECTED',
+      };
+    }
+
+    const reqLots = Math.max(0.01, Number(params.lots.toFixed(2)));
+    if (this.riskRules.isLockoutEnabled && riskStatus.openLots + reqLots > this.riskRules.maxOpenLots) {
+      this.account.lastOrderFeedback = {
+        ok: false,
+        message: `🛡 RISK LIMIT: Tổng khối lượng (${(riskStatus.openLots + reqLots).toFixed(2)} Lot) vượt ngưỡng tối đa ${this.riskRules.maxOpenLots} Lot.`,
+        timestamp: Date.now(),
+      };
+      this.notify();
+      return {
+        ticket: 0,
+        instrumentId: params.instrumentId,
+        symbol: inst.symbol,
+        side: params.side,
+        orderType: params.orderType,
+        status: 'CLOSED',
+        isFilled: false,
+        lots: 0,
+        entryPriceTicks: Math.round(params.entryPriceTicks),
+        slPriceTicks: null,
+        tpPriceTicks: null,
+        slTicks: null,
+        tpTicks: null,
+        openTimeUs: Date.now() * 1000,
+        comment: 'RISK_MAX_LOTS_REJECTED',
+      };
+    }
     const rawSl = params.slTicks ?? params.slPriceTicks ?? null;
     const rawTp = params.tpTicks ?? params.tpPriceTicks ?? null;
     const slRounded = rawSl ? Math.round(rawSl) : null;
@@ -577,41 +733,17 @@ class Mt5BridgeService {
         };
         this.notify();
       } else {
-        const errText = res?.error || 'MT5 từ chối lệnh';
-        const isWeekendOrSim =
-          res?.retcode === 10018 ||
-          errText.toLowerCase().includes('market closed') ||
-          !params.instrumentId.startsWith('MT5:');
-
-        if (isWeekendOrSim) {
-          // Keep as interactive Chart Ticket (tagged [SIM]) so trader can still drag SL/TP/Entry on chart!
-          this.tickets = this.tickets.map((t) =>
-            t.ticket === tempTicketNum
-              ? { ...t, comment: `[SIM] ${t.comment || 'Order'}` }
-              : t
-          );
-          this.saveTickets();
-          this.account.lastOrderFeedback = {
-            ok: true,
-            message:
-              res?.retcode === 10018
-                ? `📌 Sàn MT5 đóng cửa cuối tuần (10018) → Đã tạo Lệnh Mô Phỏng #${tempTicketNum} trên Chart để bạn kéo thả SL/TP trực tiếp!`
-                : `✅ Đã đặt lệnh Chart #${tempTicketNum}: ${params.side.toUpperCase()} ${optimisticTicket.lots} Lot ${inst.symbol}`,
-            timestamp: Date.now(),
-          };
-          this.notify();
-        } else {
-          this.tickets = this.tickets.filter((t) => t.ticket !== tempTicketNum);
-          if (res?.accountState && res.accountState.ok) {
-            this.applyBridgeAccountState(res.accountState);
-          }
-          this.account.lastOrderFeedback = {
-            ok: false,
-            message: `⚠️ ${errText}`,
-            timestamp: Date.now(),
-          };
-          this.notify();
+        const errText = res?.error || 'MT5 từ chối lệnh (Kiểm tra kết nối MetaTrader 5 hoặc giờ mở cửa thị trường)';
+        this.tickets = this.tickets.filter((t) => t.ticket !== tempTicketNum);
+        if (res?.accountState && res.accountState.ok) {
+          this.applyBridgeAccountState(res.accountState);
         }
+        this.account.lastOrderFeedback = {
+          ok: false,
+          message: `⚠️ ${errText}`,
+          timestamp: Date.now(),
+        };
+        this.notify();
       }
     });
 
@@ -635,11 +767,6 @@ class Mt5BridgeService {
     });
     this.saveTickets();
     this.notify();
-
-    const target = this.tickets.find((t) => t.ticket === ticketId);
-    if (target && target.ticket >= 80000000 && String(target.comment || '').includes('[SIM]')) {
-      return;
-    }
 
     // Send real Entry/SL/TP modification to MetaTrader 5
     this.callMt5Rpc({
@@ -708,31 +835,6 @@ class Mt5BridgeService {
 
   onLivePriceTick(instrumentId: string, currentPriceTicks: number) {
     if (!currentPriceTicks || currentPriceTicks <= 0) return;
-    // Also trigger pending SIM orders if price crosses their entry
-    let changed = false;
-    this.tickets = this.tickets.map((t) => {
-      if (
-        t.ticket >= 80000000 &&
-        t.status === 'PENDING' &&
-        this.isSameInstrumentOrBase(t.instrumentId, instrumentId)
-      ) {
-        const shouldFill =
-          (t.side === 'Buy' && t.orderType === 'LIMIT' && currentPriceTicks <= t.entryPriceTicks) ||
-          (t.side === 'Buy' && t.orderType === 'STOP' && currentPriceTicks >= t.entryPriceTicks) ||
-          (t.side === 'Sell' && t.orderType === 'LIMIT' && currentPriceTicks >= t.entryPriceTicks) ||
-          (t.side === 'Sell' && t.orderType === 'STOP' && currentPriceTicks <= t.entryPriceTicks);
-        if (shouldFill) {
-          changed = true;
-          return { ...t, status: 'OPEN', isFilled: true };
-        }
-      }
-      return t;
-    });
-    if (changed) {
-      this.saveTickets();
-      this.notify();
-    }
-
     if (this.account.isRealMt5Terminal) return;
 
     let openFloatingPnl = 0;
@@ -745,20 +847,6 @@ class Mt5BridgeService {
   }
 
   closeTicket(ticketId: number, _currentPriceTicks?: number) {
-    // Immediately remove if it is a local SIM ticket
-    const target = this.tickets.find((t) => t.ticket === ticketId);
-    if (target && target.ticket >= 80000000 && String(target.comment || '').includes('[SIM]')) {
-      this.tickets = this.tickets.filter((t) => t.ticket !== ticketId);
-      this.saveTickets();
-      this.account.lastOrderFeedback = {
-        ok: true,
-        message: `✅ Đã đóng Lệnh Chart #${ticketId}`,
-        timestamp: Date.now(),
-      };
-      this.notify();
-      return;
-    }
-
     // Optimistic removal
     this.tickets = this.tickets.filter((t) => t.ticket !== ticketId);
     this.saveTickets();

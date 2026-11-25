@@ -63,6 +63,8 @@ export interface SpeedMetricsDTO {
 
 export interface DataQualityStatusDTO {
   feed_status: string;
+  feed_source?: string;
+  freshness_ms?: number;
   latency_ms: number;
   total_gaps_detected: number;
   completeness: string;
@@ -71,9 +73,26 @@ export interface DataQualityStatusDTO {
   last_updated_us: number;
 }
 
+export interface MboQueueOrderItemDTO {
+  order_id_tail: string;
+  quantity_contracts: number;
+  is_large_lot: boolean;
+}
+
+export interface CmeStopSweepItemDTO {
+  detected_at_us: number;
+  side: 'Buy' | 'Sell' | string;
+  start_price_ticks: number;
+  end_price_ticks: number;
+  levels_swept: number;
+  total_contracts: number;
+}
+
 export interface OrderBookLevelDTO {
   price_ticks: number;
   quantity_units: number;
+  order_count?: number;
+  mbo_queue?: MboQueueOrderItemDTO[];
 }
 
 export interface OrderBookSnapshotDTO {
@@ -225,6 +244,7 @@ export interface ChartSnapshotDTO {
   multi_venue?: MultiVenueSummaryDTO;
   market_narrative?: MarketNarrativeDTO;
   icebergs?: IcebergOrderDTO[];
+  cme_stop_sweeps?: CmeStopSweepItemDTO[];
   recent_trades?: TradeEventDTO[];
   paper_position?: PaperPositionDTO;
   feed_status?: FeedStatusDTO;

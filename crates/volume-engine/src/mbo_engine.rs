@@ -21,6 +21,7 @@ pub struct MboOrderEntry {
 pub struct LevelExecutionStats {
     pub initial_displayed_units: u64,
     pub total_executed_units: u64,
+    pub execution_slice_count: u32,
     pub refill_count: u32,
     pub last_execution_ts_us: i64,
 }
@@ -125,15 +126,21 @@ impl MboOrderBook {
                         .entry((existing.price_ticks, existing.side))
                         .or_default();
                     stats.total_executed_units += exec_qty;
+                    stats.execution_slice_count += 1;
                     stats.last_execution_ts_us = event.exchange_ts_us;
 
                     // Iceberg Condition:
-                    // Total executed units at this price level exceeds initial displayed units by >= 50%
+                    // Total executed units at this price level exceeds initial displayed units
                     if stats.total_executed_units > stats.initial_displayed_units
                         && stats.initial_displayed_units > 0
                     {
                         let hidden = stats.total_executed_units - stats.initial_displayed_units;
-                        stats.refill_count += 1;
+                        // Increment refill_count on initial hidden breach and each subsequent full displayed reload
+                        if stats.refill_count == 0
+                            || hidden >= stats.initial_displayed_units * (stats.refill_count as u64 + 1)
+                        {
+                            stats.refill_count += 1;
+                        }
 
                         let detection = IcebergOrderDetection {
                             price_ticks: existing.price_ticks,

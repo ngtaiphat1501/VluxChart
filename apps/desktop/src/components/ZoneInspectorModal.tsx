@@ -197,13 +197,12 @@ export const ZoneInspectorModal: React.FC<ZoneInspectorModalProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '20px' }}>🔍</span>
             <div>
-              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#FFF' }}>
-                Institutional Zone Inspector (Section 10 Spec)
+              <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: '#F8FAFC' }}>
+                Institutional Zone Inspector
               </h2>
-              <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#8E9AA8' }}>
-                Evidence-Based Market Structure & Order Flow Invariant Auditor
+              <p style={{ margin: '2px 0 0 0', fontSize: '11.5px', color: '#8E9AA8' }}>
+                Evidence-Based Market Structure &amp; Order Flow Invariant Auditor
               </p>
             </div>
           </div>
@@ -326,7 +325,7 @@ export const ZoneInspectorModal: React.FC<ZoneInspectorModalProps> = ({
                       cursor: 'pointer',
                     }}
                   >
-                    {copied ? '✓ COPIED JSON' : '📋 COPY JSON AUDIT'}
+                    {copied ? '✓ COPIED JSON' : 'COPY JSON AUDIT'}
                   </button>
                 </div>
 

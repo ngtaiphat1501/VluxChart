@@ -79,13 +79,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '20px' }}>⚙️</span>
             <div>
-              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#FFF' }}>
-                Terminal Workspace & Theme Settings
+              <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: '#F8FAFC' }}>
+                Terminal Workspace &amp; Theme Settings
               </h2>
-              <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#8E9AA8' }}>
-                Custom Footprint Colors, Heatmap Palettes & Order Flow Thresholds
+              <p style={{ margin: '2px 0 0 0', fontSize: '11.5px', color: '#8E9AA8' }}>
+                Custom Footprint Colors, Heatmap Palettes &amp; Order Flow Thresholds
               </p>
             </div>
           </div>
@@ -108,8 +107,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px', overflowY: 'auto' }}>
           {/* Section 1: Footprint & Heatmap Display Themes */}
           <div>
-            <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: 700, color: '#FFF', textTransform: 'uppercase' }}>
-              🎨 Chart Aesthetics & Palettes
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '12px', fontWeight: 700, color: '#38BDF8', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+              1. Chart Aesthetics &amp; Palettes
             </h4>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
               <div>
@@ -162,8 +161,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Section 2: Order Flow Detection Thresholds */}
           <div>
-            <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: 700, color: '#FFF', textTransform: 'uppercase' }}>
-              🎯 Institutional Detection Thresholds
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '12px', fontWeight: 700, color: '#38BDF8', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+              2. Institutional Detection Thresholds
             </h4>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
               <div>
@@ -239,8 +238,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Section 3: Web Audio Synthesizer Cues */}
           <div>
-            <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: 700, color: '#FFF', textTransform: 'uppercase' }}>
-              🔊 Acoustic Synthesizer Audio Cues
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '12px', fontWeight: 700, color: '#38BDF8', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+              3. Acoustic Synthesizer Audio Cues
             </h4>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#252932', padding: '12px', borderRadius: '6px' }}>
               <div>
@@ -255,14 +254,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               />
             </div>
 
-            <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 onClick={() => SoundManager.playWhaleChime()}
                 style={{
                   background: '#1A1D24',
-                  color: '#FFB300',
-                  border: '1px solid #3F4656',
+                  color: '#F59E0B',
+                  border: '1px solid #2D3648',
                   borderRadius: '4px',
                   padding: '6px 12px',
                   fontSize: '11px',
@@ -270,15 +269,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   fontWeight: 600,
                 }}
               >
-                🐋 Whale Chime
+                ▶ Whale Chime
               </button>
               <button
                 type="button"
                 onClick={() => SoundManager.playIcebergPing()}
                 style={{
                   background: '#1A1D24',
-                  color: '#00E5FF',
-                  border: '1px solid #3F4656',
+                  color: '#38BDF8',
+                  border: '1px solid #2D3648',
                   borderRadius: '4px',
                   padding: '6px 12px',
                   fontSize: '11px',
@@ -286,15 +285,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   fontWeight: 600,
                 }}
               >
-                🧊 Iceberg Ping
+                ▶ Iceberg Ping
               </button>
               <button
                 type="button"
                 onClick={() => SoundManager.playStackSwoosh()}
                 style={{
                   background: '#1A1D24',
-                  color: '#00E676',
-                  border: '1px solid #3F4656',
+                  color: '#10B981',
+                  border: '1px solid #2D3648',
                   borderRadius: '4px',
                   padding: '6px 12px',
                   fontSize: '11px',
@@ -302,15 +301,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   fontWeight: 600,
                 }}
               >
-                ⚡ Stack Swoosh
+                ▶ Stack Swoosh
               </button>
               <button
                 type="button"
                 onClick={() => SoundManager.playDivergenceWarning()}
                 style={{
                   background: '#1A1D24',
-                  color: '#FF5252',
-                  border: '1px solid #3F4656',
+                  color: '#F87171',
+                  border: '1px solid #2D3648',
                   borderRadius: '4px',
                   padding: '6px 12px',
                   fontSize: '11px',
@@ -318,7 +317,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   fontWeight: 600,
                 }}
               >
-                ⚠️ Divergence Warning
+                ▶ Divergence Alert
               </button>
             </div>
           </div>

@@ -22,9 +22,15 @@ import {
   detectAbsorptionEvents,
   detectCvdDivergences,
   computeProprietaryZoneLines,
+  computeFixedRangeVolumeProfile,
+  computeSessionTpoProfile,
+  detectUnfinishedAuctions,
+  computeClusterSearchThreshold,
   CalculatedOrderFlowBar,
   NakedPocDTO,
   AbsorptionEventDTO,
+  SessionTpoProfileDTO,
+  UnfinishedAuctionDTO,
 } from '../utils/orderFlowMath';
 import {
   CANONICAL_INSTRUMENTS,
@@ -75,6 +81,8 @@ interface FootprintCanvasProps {
   isPickingPriceOnChart?: boolean;
   onPricePickedFromChart?: (priceTicks: number) => void;
   onLoadMoreHistory?: () => void;
+  userTier?: string;
+  onRequirePrivilege?: (featureKey: string) => boolean;
 }
 
 export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
@@ -115,6 +123,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   isPickingPriceOnChart = false,
   onPricePickedFromChart,
   onLoadMoreHistory,
+  userTier,
+  onRequirePrivilege,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -226,8 +236,26 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   const [showRiskManager, setShowRiskManager] = useState<boolean>(false); // Risk Manager Monitor
   const [showPriorDayLevels, setShowPriorDayLevels] = useState<boolean>(true); // HTF-PD: Prior Day High, Low, POC, VAH, VAL
   const [showStackedImbalances, setShowStackedImbalances] = useState<boolean>(true); // STK-IMB: Extended Stacked Imbalance Zones
+  const [showTpoProfile, setShowTpoProfile] = useState<boolean>(false); // TPO-MP: 30m TPO Letters, IBH/IBL, Single Prints
+  const [showClusterSearch, setShowClusterSearch] = useState<boolean>(false); // CLS-SRCH: Institutional Whale Cluster Highlight
+  const [showUnfinishedAuction, setShowUnfinishedAuction] = useState<boolean>(false); // UA-EXT: Unfinished Auction Extremes
   const [liveOptionsChain, setLiveOptionsChain] = useState<LiveOptionsChainResult | null>(null);
+  const [isOptionsLoading, setIsOptionsLoading] = useState<boolean>(false);
   const lastReportedBoundsRef = useRef<{ minPrice: number; maxPrice: number; chartHeight: number; panY: number } | null>(null);
+
+  // Enforce tier-gated defaults when signed in as STANDARD PILOT
+  useEffect(() => {
+    if (userTier && userTier.toUpperCase().includes('PILOT')) {
+      setShowPropZoneLines(false);
+      setShowOptions(false);
+      setShowTpoProfile(false);
+      setShowClusterSearch(false);
+      setShowUnfinishedAuction(false);
+      setShowIcebergs(false);
+      setShowStopRuns(false);
+      setShowSweeps(false);
+    }
+  }, [userTier]);
 
   const handleApplyPreset = (presetName: 'atas_standard' | 'scalper_flow' | 'macro_institutional' | 'clean_price') => {
     if (presetName === 'atas_standard') {
@@ -295,13 +323,21 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     return () => window.removeEventListener('vluxchart:apply_preset', handlePreset);
   }, []);
 
-  // Fetch 100% Real Deribit Options Chain when STRIKES overlay is active on BTC / ETH
+  // Fetch 100% Real Live Options Chain (OPRA/CBOE Gold Rust Native + Deribit Crypto) when OPT/GEX overlay is active
+  const optionsAnchorBucket = Math.round((activeBar?.close_ticks || bars[bars.length - 1]?.close_ticks || 0) / 5000);
   useEffect(() => {
     if (!showOptions) return;
     let cancelled = false;
+    setIsOptionsLoading(true);
     const loadOptions = async () => {
-      const res = await optionsLiveService.getLiveOptionsChain(instrumentId, 'ALL', refPrice);
-      if (!cancelled) setLiveOptionsChain(res);
+      const currentRefTicks =
+        activeBar?.close_ticks ||
+        (bars.length > 0 ? bars[bars.length - 1].close_ticks : CANONICAL_INSTRUMENTS[instrumentId]?.basePriceTicks || 0);
+      const res = await optionsLiveService.getLiveOptionsChain(instrumentId, 'ALL', currentRefTicks);
+      if (!cancelled) {
+        setLiveOptionsChain(res);
+        setIsOptionsLoading(false);
+      }
     };
     loadOptions();
     const timer = setInterval(loadOptions, 30_000);
@@ -309,23 +345,27 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [showOptions, instrumentId]);
+  }, [showOptions, instrumentId, optionsAnchorBucket]);
 
-  // Automatically reset viewport offset when switching instrument
+  // Automatically reset viewport offset when switching instrument OR timeframe so chart never strands off-screen
   const prevInstrumentRef = useRef<string>(instrumentId);
+  const currentTimeframeUs = activeBar?.timeframe_us || bars[0]?.timeframe_us || 0;
+  const prevTimeframeRef = useRef<number>(currentTimeframeUs);
   useEffect(() => {
-    if (prevInstrumentRef.current !== instrumentId) {
+    if (prevInstrumentRef.current !== instrumentId || (currentTimeframeUs > 0 && prevTimeframeRef.current !== currentTimeframeUs)) {
       prevInstrumentRef.current = instrumentId;
+      prevTimeframeRef.current = currentTimeframeUs;
       setPanX(0);
       setPanY(0);
       setPriceScale(1.0);
     }
-  }, [instrumentId]);
+  }, [instrumentId, currentTimeframeUs]);
 
   // Split historical closed bars vs single live forming bar so live ticks ONLY compute 1 bar (<0.02ms)
+  const isSyntheticInstrument = instrumentId.startsWith('SYNTH:');
   const sanitizedClosedBars = useMemo(() => {
     return bars
-      .filter((b) => b.close_ticks > 0 && b.bar_start_us > 0)
+      .filter((b) => (isSyntheticInstrument ? Number.isFinite(b.close_ticks) : b.close_ticks > 0) && b.bar_start_us > 0)
       .map((b) => {
         const open = b.open_ticks;
         const close = b.close_ticks;
@@ -337,10 +377,12 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           close_ticks: close,
         };
       });
-  }, [bars]);
+  }, [bars, isSyntheticInstrument]);
 
   const sanitizedActiveBar = useMemo(() => {
-    if (!activeBar || activeBar.close_ticks <= 0 || activeBar.bar_start_us <= 0) return null;
+    if (!activeBar || activeBar.bar_start_us <= 0) return null;
+    if (!isSyntheticInstrument && activeBar.close_ticks <= 0) return null;
+    if (!Number.isFinite(activeBar.close_ticks)) return null;
     const open = activeBar.open_ticks;
     const close = activeBar.close_ticks;
     return {
@@ -400,63 +442,74 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
 
   const nakedPocs: NakedPocDTO[] = useMemo(() => {
     if (!showNakedPoc) return [];
-    const windowBars = analyzedBars.length > 180 ? analyzedBars.slice(-180) : analyzedBars;
-    const offset = analyzedBars.length - windowBars.length;
+    const windowBars = analyzedClosedBars.length > 1500 ? analyzedClosedBars.slice(-1500) : analyzedClosedBars;
+    const offset = analyzedClosedBars.length - windowBars.length;
     return computeNakedPocs(windowBars).map((np) => ({
       ...np,
       barIndex: np.barIndex + offset,
     }));
-  }, [analyzedBars, showNakedPoc]);
+  }, [analyzedClosedBars, showNakedPoc]);
 
   const absorptionEvents: AbsorptionEventDTO[] = useMemo(() => {
     if (!showAbsorption) return [];
-    const windowBars = analyzedBars.length > 180 ? analyzedBars.slice(-180) : analyzedBars;
-    const offset = analyzedBars.length - windowBars.length;
+    const windowBars = analyzedClosedBars.length > 1500 ? analyzedClosedBars.slice(-1500) : analyzedClosedBars;
+    const offset = analyzedClosedBars.length - windowBars.length;
     return detectAbsorptionEvents(windowBars).map((ev) => ({
       ...ev,
       barIndex: ev.barIndex + offset,
     }));
-  }, [analyzedBars, showAbsorption]);
+  }, [analyzedClosedBars, showAbsorption]);
 
   const propZoneLines = useMemo(() => {
-    if (!showPropZoneLines || analyzedBars.length < 25) return [];
-    const activeVwap = vwap || computeSessionVwap(analyzedBars, analyzedBars[analyzedBars.length - 1].close_ticks);
-    const tfUs = analyzedBars[0]?.timeframe_us;
-    return computeProprietaryZoneLines(analyzedBars, activeVwap, 36, instrumentId, tfUs);
-  }, [analyzedBars, vwap, showPropZoneLines, instrumentId]);
+    if (!showPropZoneLines || analyzedClosedBars.length < 25) return [];
+    const activeVwap = vwap || computeSessionVwap(analyzedClosedBars, analyzedClosedBars[analyzedClosedBars.length - 1].close_ticks);
+    const tfUs = analyzedClosedBars[0]?.timeframe_us;
+    return computeProprietaryZoneLines(analyzedClosedBars, activeVwap, 36, instrumentId, tfUs);
+  }, [analyzedClosedBars, vwap, showPropZoneLines, instrumentId]);
+
+  const sessionTpoProfile: SessionTpoProfileDTO | null = useMemo(() => {
+    if (!showTpoProfile || sanitizedClosedBars.length < 3) return null;
+    const stepTicks = Math.max(1, getInstrumentMeta(instrumentId).tickSize * 6);
+    return computeSessionTpoProfile(sanitizedClosedBars, stepTicks);
+  }, [sanitizedClosedBars, showTpoProfile, instrumentId]);
+
+  const unfinishedAuctions: UnfinishedAuctionDTO[] = useMemo(() => {
+    if (!showUnfinishedAuction || sanitizedClosedBars.length === 0) return [];
+    return detectUnfinishedAuctions(sanitizedClosedBars, 10);
+  }, [sanitizedClosedBars, showUnfinishedAuction]);
 
   // =========================================================================
   // INSTITUTIONAL PRIOR DAY (HTF) REFERENCE LEVELS: PDH, PDL, PDPOC, PDVAH, PDVAL
+  // Computed strictly on sanitizedClosedBars (zero recomputation on live ticks)
+  // using pure integer UTC day buckets (50x faster than new Date() string keys).
   // =========================================================================
   const priorDayLevels = useMemo(() => {
-    if (!allBars || allBars.length < 8) return null;
+    if (!sanitizedClosedBars || sanitizedClosedBars.length < 8) return null;
 
-    // Group bars by calendar day (UTC)
-    const dayMap = new Map<string, typeof allBars>();
-    allBars.forEach((bar) => {
-      const d = new Date(bar.bar_start_us / 1000);
-      const dayKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    // Group closed bars by integer UTC day index (bar_start_us / 86_400_000_000)
+    const dayMap = new Map<number, typeof sanitizedClosedBars>();
+    for (let i = 0; i < sanitizedClosedBars.length; i++) {
+      const bar = sanitizedClosedBars[i];
+      const dayKey = Math.floor(bar.bar_start_us / 86_400_000_000);
       let list = dayMap.get(dayKey);
       if (!list) {
         list = [];
         dayMap.set(dayKey, list);
       }
       list.push(bar);
-    });
+    }
 
-    const dayKeys = Array.from(dayMap.keys()).sort();
-    let targetBars: typeof allBars = [];
+    const dayKeys = Array.from(dayMap.keys()).sort((a, b) => a - b);
+    let targetBars: typeof sanitizedClosedBars = [];
 
     if (dayKeys.length >= 2) {
-      // Prior calendar day is the day right before the latest day
       const yesterdayKey = dayKeys[dayKeys.length - 2];
       targetBars = dayMap.get(yesterdayKey) || [];
     }
 
     if (targetBars.length === 0) {
-      // Fallback: take the first half of all loaded bars as the prior reference baseline
-      const half = Math.floor(allBars.length / 2);
-      targetBars = allBars.slice(0, Math.max(half, 1));
+      const half = Math.floor(sanitizedClosedBars.length / 2);
+      targetBars = sanitizedClosedBars.slice(0, Math.max(half, 1));
     }
 
     if (targetBars.length === 0) return null;
@@ -466,19 +519,22 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     const binMap = new Map<number, number>();
     let totalVol = 0;
 
-    targetBars.forEach((b) => {
+    for (let i = 0; i < targetBars.length; i++) {
+      const b = targetBars[i];
       if (b.high_ticks > pdh) pdh = b.high_ticks;
       if (b.low_ticks < pdl) pdl = b.low_ticks;
       if (b.footprint && b.footprint.length > 0) {
-        b.footprint.forEach((c) => {
+        for (let j = 0; j < b.footprint.length; j++) {
+          const c = b.footprint[j];
           totalVol += c.total_units;
           binMap.set(c.price_ticks, (binMap.get(c.price_ticks) || 0) + c.total_units);
-        });
+        }
       } else {
         totalVol += b.total_units;
-        binMap.set(b.poc_ticks || b.close_ticks, (binMap.get(b.poc_ticks || b.close_ticks) || 0) + b.total_units);
+        const p = b.poc_ticks || b.close_ticks;
+        binMap.set(p, (binMap.get(p) || 0) + b.total_units);
       }
-    });
+    }
 
     if (!isFinite(pdh) || !isFinite(pdl)) return null;
 
@@ -495,7 +551,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     let acc = 0;
     let pdVah = pdPoc;
     let pdVal = pdPoc;
-    for (const [p, v] of sortedBins) {
+    for (let i = 0; i < sortedBins.length; i++) {
+      const [p, v] = sortedBins[i];
       acc += v;
       if (p > pdVah) pdVah = p;
       if (p < pdVal) pdVal = p;
@@ -509,7 +566,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       pdVah: Math.max(pdVah, pdPoc),
       pdVal: Math.min(pdVal, pdPoc),
     };
-  }, [allBars]);
+  }, [sanitizedClosedBars]);
 
   const [drawingDraft, setDrawingDraft] = useState<{ start: DrawingPoint; current: DrawingPoint } | null>(null);
   const [brushDraft, setBrushDraft] = useState<DrawingPoint[] | null>(null);
@@ -538,6 +595,13 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
   const [showOneClickBar, setShowOneClickBar] = useState<boolean>(false);
   const [oneClickLots, setOneClickLots] = useState<number>(1.0);
   const [mt5Tickets, setMt5Tickets] = useState<Mt5OrderTicket[]>(() => mt5BridgeService.getTickets(instrumentId));
+  const [liveClockSec, setLiveClockSec] = useState<number>(() => Math.floor(Date.now() / 1000));
+  const lastHistoryTriggerMsRef = useRef<number>(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setLiveClockSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     setMt5Tickets(mt5BridgeService.getTickets(instrumentId));
@@ -790,7 +854,10 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       return null;
     }
 
-    if ((d.type === 'imbalance_box' || d.type === 'price_range' || d.type === 'fibonacci') && d.points.length >= 2) {
+    if (
+      (d.type === 'imbalance_box' || d.type === 'fixed_range_vp' || d.type === 'price_range' || d.type === 'fibonacci') &&
+      d.points.length >= 2
+    ) {
       const x0 = helpers.timeToX(d.points[0].time_us);
       const y0 = helpers.priceToY(d.points[0].price_ticks);
       const x1 = d.extendRight ? chartRightX : helpers.timeToX(d.points[1].time_us);
@@ -910,9 +977,13 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
       const dx = e.deltaX !== 0 ? -e.deltaX : -e.deltaY;
       setPanX((prev) => {
-        const next = prev + dx * 1.2;
-        if (next >= helpers.maxPanLeft - 350 && onLoadMoreHistory) {
-          onLoadMoreHistory();
+        const next = Math.max(-helpers.maxPanRight, Math.min(helpers.maxPanLeft + 80, prev + dx * 1.2));
+        if (next >= helpers.maxPanLeft - Math.max(420, helpers.barPitch * 30) && onLoadMoreHistory) {
+          const nowMs = performance.now();
+          if (nowMs - lastHistoryTriggerMsRef.current > 300) {
+            lastHistoryTriggerMsRef.current = nowMs;
+            onLoadMoreHistory();
+          }
         }
         return next;
       });
@@ -1193,8 +1264,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       return;
     }
 
-    // 2-Point Tools: Trendline, Arrow, Order Block (imbalance_box), Fibonacci, Price Range Ruler
-    if (['trendline', 'arrow', 'imbalance_box', 'fibonacci', 'price_range'].includes(activeDrawingTool)) {
+    // 2-Point Tools: Trendline, Arrow, Order Block (imbalance_box), Fixed Range VP, Fibonacci, Price Range Ruler
+    if (['trendline', 'arrow', 'imbalance_box', 'fixed_range_vp', 'fibonacci', 'price_range'].includes(activeDrawingTool)) {
       if (!drawingDraft) {
         setDragStartPos({ x: e.clientX, y: e.clientY });
         setDrawingDraft({
@@ -1400,11 +1471,16 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
 
     if (dragMode === 'chartPan') {
       setCursorStyle('grabbing');
-      const nextPanX = initialPanX + (e.clientX - dragStartPos.x);
+      const rawPanX = initialPanX + (e.clientX - dragStartPos.x);
+      const nextPanX = Math.max(-helpers.maxPanRight, Math.min(helpers.maxPanLeft + 80, rawPanX));
       setPanX(nextPanX);
       setPanY(initialPanY + (e.clientY - dragStartPos.y));
-      if (nextPanX >= helpers.maxPanLeft - 350 && onLoadMoreHistory) {
-        onLoadMoreHistory();
+      if (nextPanX >= helpers.maxPanLeft - Math.max(420, helpers.barPitch * 30) && onLoadMoreHistory) {
+        const nowMs = performance.now();
+        if (nowMs - lastHistoryTriggerMsRef.current > 300) {
+          lastHistoryTriggerMsRef.current = nowMs;
+          onLoadMoreHistory();
+        }
       }
       return;
     }
@@ -1536,7 +1612,23 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [drawingDraft, selectedDrawingId, onDrawingDeleted]);
 
+  // Automatic Infinite-History Loader: seamlessly pages older bars whenever zoom-out OR pan approaches the left boundary
   useEffect(() => {
+    if (!onLoadMoreHistory || allBars.length === 0) return;
+    const helpers = getCoordinateHelpers();
+    if (!helpers) return;
+    const leftBufferPx = Math.max(420, helpers.barPitch * 30);
+    if (helpers.startX > -leftBufferPx) {
+      const nowMs = performance.now();
+      if (nowMs - lastHistoryTriggerMsRef.current > 320) {
+        lastHistoryTriggerMsRef.current = nowMs;
+        onLoadMoreHistory();
+      }
+    }
+  }, [zoom, panX, allBars.length, instrumentId, currentTimeframeUs, onLoadMoreHistory]);
+
+  useEffect(() => {
+    const rafDrawId = requestAnimationFrame(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -1546,12 +1638,18 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     const rect = canvas.getBoundingClientRect();
     const width = rect.width;
     const height = rect.height;
+    if (width <= 0 || height <= 0) return;
 
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    ctx.scale(dpr, dpr);
+    // Avoid destroying and reallocating GPU texture backing store on every frame!
+    const targetW = Math.round(width * dpr);
+    const targetH = Math.round(height * dpr);
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // ─── DeepChart / ATAS Obsidian Theme Palette ───
+    // ─── DeepChart Signature (Green/Purple) & ATAS Institutional Palette ───
     const isDeepChart = colorTheme === 'deepchart';
     const bgCanvas = isDeepChart ? '#0D0F14' : '#11151E';
     const gridColor = isDeepChart ? '#161A22' : '#1C222E';
@@ -1566,10 +1664,16 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     ctx.fillRect(0, 0, width, height);
 
     if (allBars.length === 0) {
-      ctx.fillStyle = '#8E9AA8';
-      ctx.font = '14px sans-serif';
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = '600 12.5px "Inter", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Awaiting real-time Order Flow trade stream...', width / 2, height / 2);
+      ctx.fillText(
+        instMeta.venue === 'MT5'
+          ? `Đang đồng bộ dữ liệu nến & tick thật từ MetaTrader 5 (${instMeta.symbol})...`
+          : `Đang tải dữ liệu thị trường thực tế (${instMeta.symbol})...`,
+        width / 2,
+        height / 2
+      );
       return;
     }
 
@@ -1777,7 +1881,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
 
           if (showDeltaProfileSession) {
             const isNetBuy = b.buy_units >= b.sell_units;
-            ctx.fillStyle = isNetBuy ? 'rgba(0, 230, 118, 0.58)' : 'rgba(168, 85, 247, 0.58)';
+            ctx.fillStyle = isNetBuy
+              ? 'rgba(0, 230, 118, 0.58)'
+              : isDeepChart
+              ? 'rgba(168, 85, 247, 0.58)'
+              : 'rgba(242, 54, 69, 0.58)';
           } else if (isSessionPoc) {
             ctx.fillStyle = '#00E676'; // DeepChart Bright Green Session POC Bar (media_1794650904572_a0f8fcfc.jpg)
           } else {
@@ -1834,7 +1942,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         ctx.stroke();
         ctx.setLineDash([]);
 
-        const text = `${label}: ${(priceTicks * instMeta.tickSize).toFixed(instMeta.priceDecimals)}`;
+        const text = `${label}: ${formatInstrumentPrice(priceTicks, instrumentId)}`;
         ctx.font = 'bold 9px "JetBrains Mono", monospace';
         const tw = ctx.measureText(text).width + 8;
         ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
@@ -1855,6 +1963,103 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
       drawHtfLevel(priorDayLevels.pdPoc, 'PD-POC', '#FACC15', []);
       drawHtfLevel(priorDayLevels.pdVal, 'PD-VAL', '#38BDF8', [4, 4]);
       drawHtfLevel(priorDayLevels.pdl, 'PDL', '#34D399', [5, 4]);
+    }
+
+    // =========================================================================
+    // 1C. CBOT / SIERRA CHART TPO MARKET PROFILE (30m LETTERS, IBH/IBL, SINGLE PRINTS)
+    // =========================================================================
+    if (showTpoProfile && sessionTpoProfile) {
+      ctx.save();
+      const ibStartX = Math.max(0, timeToX(sessionTpoProfile.sessionStartUs));
+      const yIbh = priceToY(sessionTpoProfile.ibhTicks);
+      const yIbl = priceToY(sessionTpoProfile.iblTicks);
+
+      // 1) Initial Balance (First 60m A+B) Shaded Band + Reference Lines
+      if (Math.abs(yIbl - yIbh) > 2) {
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.045)';
+        ctx.fillRect(ibStartX, Math.min(yIbh, yIbl), Math.max(20, chartRightX - ibStartX), Math.abs(yIbl - yIbh));
+      }
+
+      const drawIbLine = (ticks: number, tag: string, col: string) => {
+        const y = priceToY(ticks);
+        if (y < 6 || y > chartHeight - 6) return;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1.3;
+        ctx.setLineDash([6, 3]);
+        ctx.beginPath();
+        ctx.moveTo(ibStartX, y);
+        ctx.lineTo(chartRightX, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+        const lbl = `${tag}: ${formatInstrumentPrice(ticks, instrumentId)}`;
+        const tw = ctx.measureText(lbl).width + 10;
+        ctx.fillStyle = 'rgba(11, 15, 22, 0.90)';
+        ctx.fillRect(Math.max(12, ibStartX + 6), y - 8, tw, 15);
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(Math.max(12, ibStartX + 6), y - 8, tw, 15);
+        ctx.fillStyle = col;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(lbl, Math.max(12, ibStartX + 6) + 5, y);
+      };
+      drawIbLine(sessionTpoProfile.ibhTicks, 'IBH (60m A+B)', '#38BDF8');
+      drawIbLine(sessionTpoProfile.iblTicks, 'IBL (60m A+B)', '#2DD4BF');
+
+      // 2) Single Prints (Interior 1-TPO Liquidity Vacuum Magnet Zones)
+      sessionTpoProfile.singlePrintZones.slice(-5).forEach((sp) => {
+        const yTop = priceToY(sp.highTicks);
+        const yBot = priceToY(sp.lowTicks);
+        const top = Math.min(yTop, yBot);
+        const h = Math.max(4, Math.abs(yBot - yTop));
+        if (top + h < 0 || top > chartHeight) return;
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.16)';
+        ctx.fillRect(ibStartX, top, Math.max(20, chartRightX - ibStartX), h);
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.55)';
+        ctx.lineWidth = 0.9;
+        ctx.strokeRect(ibStartX, top, Math.max(20, chartRightX - ibStartX), h);
+        ctx.fillStyle = '#FBBF24';
+        ctx.font = 'bold 8px "JetBrains Mono", monospace';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`SINGLE PRINT [${sp.letter}]`, chartRightX - (showVolumeProfile ? 102 : 10), top + h / 2);
+      });
+
+      // 3) Right-Docked TPO Letter Staircase (Offset cleanly left of D-VP if both active)
+      const tpoAnchorRight = chartRightX - (showVolumeProfile ? 94 : 6);
+      const tpoMaxW = 76;
+      const rowPxH = Math.max(
+        5,
+        Math.min(
+          13,
+          Math.abs(priceToY(sessionTpoProfile.tpoPocTicks) - priceToY(sessionTpoProfile.tpoPocTicks + sessionTpoProfile.binStepTicks)) - 1
+        )
+      );
+      sessionTpoProfile.rows.forEach((r) => {
+        const y = priceToY(r.priceTicks) - rowPxH / 2;
+        if (y < -rowPxH || y > chartHeight + rowPxH) return;
+        const isTPoc = r.priceTicks === sessionTpoProfile.tpoPocTicks;
+        const inVa =
+          r.priceTicks >= sessionTpoProfile.tpoValTicks && r.priceTicks <= sessionTpoProfile.tpoVahTicks;
+        const w = Math.max(4, (r.tpoCount / sessionTpoProfile.maxTpoCount) * tpoMaxW);
+        ctx.fillStyle = isTPoc
+          ? 'rgba(251, 191, 36, 0.85)'
+          : r.isSinglePrint
+          ? 'rgba(245, 158, 11, 0.65)'
+          : inVa
+          ? 'rgba(14, 165, 233, 0.52)'
+          : 'rgba(100, 116, 139, 0.36)';
+        ctx.fillRect(tpoAnchorRight - w, y, w, Math.max(2, rowPxH - 1));
+        if (rowPxH >= 8) {
+          ctx.fillStyle = isTPoc ? '#090D16' : '#E2E8F0';
+          ctx.font = 'bold 7.5px "JetBrains Mono", monospace';
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(r.letters.slice(0, 10), tpoAnchorRight - 2, y + rowPxH / 2);
+        }
+      });
+      ctx.restore();
     }
 
     // =========================================================================
@@ -2008,6 +2213,10 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           return v.toString();
         };
 
+        const clusterSearchMinVol = showClusterSearch
+          ? computeClusterSearchThreshold(aggregatedCells.length, bar.total_units, whaleVolumeThreshold)
+          : Infinity;
+
         aggregatedCells.forEach((cell) => {
           const cellCenterY = priceToY(cell.price_ticks);
           const cellY = Math.round(cellCenterY - cellH / 2);
@@ -2035,7 +2244,6 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           }
 
           // ─── LAYER B: OF-VP (Two-Tone Sell/Buy Horizontal Volume Profile Histogram per Bar) ───
-          // Matches media_1794650950575_011ab3f4.jpg & media_1794650904572_a0f8fcfc.jpg 100%!
           if (showOfVp && !showOfDeltaP) {
             if (!showOfBa && isPoc) {
               ctx.fillStyle = '#FFD600';
@@ -2045,7 +2253,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
               const sellSegW = Math.round(totalBarW * sellFrac);
               const buySegW = Math.max(0, totalBarW - sellSegW);
 
-              // Left Segment: Sell / Bid Volume (Soft Lavender-Purple in DeepChart, Soft Rose in ATAS)
+              // Left Segment: Sell / Bid Volume (DeepChart Signature Lavender/Purple or ATAS Rose)
               if (sellSegW > 0) {
                 ctx.fillStyle = isDeepChart
                   ? `rgba(167, 139, 250, ${0.34 + volRatio * 0.24})`
@@ -2053,20 +2261,20 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                 ctx.fillRect(fpStartX, cellY + 1, sellSegW, cellH - 2);
               }
 
-              // Right Segment: Buy / Ask Volume (Vibrant Mint-Emerald Green)
+              // Right Segment: Buy / Ask Volume (DeepChart Signature Neon Emerald)
               if (buySegW > 0) {
                 ctx.fillStyle = `rgba(74, 222, 128, ${0.36 + volRatio * 0.26})`;
                 ctx.fillRect(fpStartX + sellSegW, cellY + 1, buySegW, cellH - 2);
               }
 
               // Crisp 1px staircase row border around horizontal volume bar
-              ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+              ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
               ctx.lineWidth = 0.75;
               ctx.strokeRect(fpStartX, cellY + 1, totalBarW, cellH - 2);
             }
           }
 
-          // ─── LAYER C: OF-B/A (2-Column Bid × Ask Numbers & Yellow POC Outline) ───
+          // ─── LAYER C: OF-B/A (2-Column Bid × Ask Numbers & POC Outline) ───
           if (showOfBa) {
             if (!showOfVp && !showOfDeltaP) {
               const halfW = Math.min(36, fpWidth / 2);
@@ -2120,6 +2328,25 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
               ctx.lineWidth = 1.8;
               ctx.strokeRect(fpStartX, cellY + 0.5, pocBoxW, cellH - 1);
             }
+          }
+
+          // ─── LAYER D: ATAS CLUSTER SEARCH (INSTITUTIONAL WHALE CLUSTER HIGHLIGHT) ───
+          if (showClusterSearch && aggregatedCells.length >= 4 && cell.total_units >= clusterSearchMinVol) {
+            const isClusterBuy = cell.delta_units >= 0;
+            const clusterCol = isClusterBuy ? '#00E5FF' : '#FB7185';
+            const boxW = Math.max(totalBarW + 3, Math.min(fpWidth - 1, askLeftX - fpStartX + 34));
+            ctx.save();
+            ctx.fillStyle = isClusterBuy ? 'rgba(0, 229, 255, 0.16)' : 'rgba(251, 113, 133, 0.16)';
+            ctx.fillRect(fpStartX, cellY, boxW, cellH);
+            ctx.strokeStyle = clusterCol;
+            ctx.lineWidth = 1.7;
+            ctx.strokeRect(fpStartX - 0.5, cellY, boxW + 1, cellH);
+            ctx.fillStyle = clusterCol;
+            ctx.font = 'bold 8px "JetBrains Mono", monospace';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('◆', x - 3, cellY + cellH / 2);
+            ctx.restore();
           }
         });
 
@@ -2446,6 +2673,42 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     }
 
     // =========================================================================
+    // 4A-2. UNFINISHED AUCTION (UA) EXTREME MAGNET DETECTOR (ATAS / SIERRA STANDARD)
+    // =========================================================================
+    if (showUnfinishedAuction && unfinishedAuctions.length > 0) {
+      unfinishedAuctions.forEach((ua) => {
+        const y = priceToY(ua.priceTicks);
+        if (y < 10 || y > chartHeight - 10) return;
+        const xStart = Math.max(0, startX + ua.barIndex * barPitch + barWidth / 2);
+        if (xStart >= chartRightX - 4) return;
+        const col = ua.side === 'HIGH' ? '#FBBF24' : '#38BDF8';
+        ctx.save();
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1.25;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(xStart, y);
+        ctx.lineTo(chartRightX, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const tag = `UA ${ua.side} [${ua.sellUnits}×${ua.buyUnits}] @ ${formatInstrumentPrice(ua.priceTicks, instrumentId)}`;
+        ctx.font = 'bold 8px "JetBrains Mono", monospace';
+        const tw = ctx.measureText(tag).width + 8;
+        ctx.fillStyle = 'rgba(11, 15, 22, 0.90)';
+        ctx.fillRect(chartRightX - tw - 6, y - 7, tw, 14);
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 0.9;
+        ctx.strokeRect(chartRightX - tw - 6, y - 7, tw, 14);
+        ctx.fillStyle = col;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(tag, chartRightX - 10, y);
+        ctx.restore();
+      });
+    }
+
+    // =========================================================================
     // 4B. PROPRIETARY STOP-LOSS CLUSTERS & LIQUIDATION POOLS (SL/LIQ)
     // Algorithmic Liquidity Estimation Model (Swing High/Low + Leverage Math)
     // =========================================================================
@@ -2583,10 +2846,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     }
 
     // =========================================================================
-    // 4C. OPTIONS STRIKES & GAMMA EXPOSURE (GEX) OVERLAY (STRIKES)
-    // Uses 100% REAL Deribit Live Options Chain for BTC/ETH; labeled fallback for Forex
+    // 4C. OPTIONS STRIKES & GAMMA EXPOSURE (GEX) OVERLAY (OPT/GEX)
+    // 100% Real Rust-Native OPRA/CBOE Gold Options (GLD+IAU) + Deribit Live Crypto
     // =========================================================================
     if (showOptions) {
+      const resolvedOptCurr = optionsLiveService.resolveOptionsCurrency(instrumentId);
       if (liveOptionsChain && liveOptionsChain.isRealData && liveOptionsChain.strikes.length > 0) {
         const levels = liveOptionsChain.strikes;
         const maxAbsGex = Math.max(...levels.map((l) => Math.abs(l.net_gex_usd)), 1);
@@ -2596,20 +2860,26 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         const maxPainUsd = Math.round(liveOptionsChain.maxPainStrikeTicks / 100);
 
         const venueTag = liveOptionsChain.currency === 'XAU' ? 'CBOE GOLD' : 'DERIBIT LIVE';
-        // Top HUD Banner showing 100% Real Options Telemetry (even if walls are outside 1m zoom!)
+        const fmtGex = (gex: number) => {
+          const sign = gex >= 0 ? '+' : '-';
+          const abs = Math.abs(gex);
+          return abs >= 1_000_000 ? `${sign}$${(abs / 1_000_000).toFixed(2)}M` : `${sign}$${(abs / 1_000).toFixed(0)}K`;
+        };
+
+        // Top HUD Banner positioned cleanly at y=58 (below top indicator strip)
         ctx.save();
-        const hudText = `OPTIONS (${venueTag}) (${liveOptionsChain.totalContractsCount} CONTRACTS) · CALL WALL: $${callWallUsd.toLocaleString()} · PUT WALL: $${putWallUsd.toLocaleString()} · ZERO γ: $${zeroGammaUsd.toLocaleString()} · MAX PAIN: $${maxPainUsd.toLocaleString()}`;
+        const hudText = `OPT/GEX [${venueTag}] (${liveOptionsChain.totalContractsCount} HĐ) · CALL WALL: $${callWallUsd.toLocaleString()} · PUT WALL: $${putWallUsd.toLocaleString()} · ZERO γ: $${zeroGammaUsd.toLocaleString()} · MAX PAIN: $${maxPainUsd.toLocaleString()} · P/C: ${liveOptionsChain.putCallRatio}`;
         ctx.font = 'bold 9px "JetBrains Mono", monospace';
-        const hudW = ctx.measureText(hudText).width + 18;
-        ctx.fillStyle = 'rgba(11, 15, 25, 0.92)';
-        ctx.fillRect(14, 34, hudW, 20);
-        ctx.strokeStyle = '#10B981';
+        const hudW = Math.min(chartRightX - 24, ctx.measureText(hudText).width + 18);
+        ctx.fillStyle = 'rgba(11, 15, 25, 0.93)';
+        ctx.fillRect(10, 56, hudW, 20);
+        ctx.strokeStyle = liveOptionsChain.currency === 'XAU' ? '#F59E0B' : '#10B981';
         ctx.lineWidth = 1.2;
-        ctx.strokeRect(14, 34, hudW, 20);
-        ctx.fillStyle = '#34D399';
+        ctx.strokeRect(10, 56, hudW, 20);
+        ctx.fillStyle = liveOptionsChain.currency === 'XAU' ? '#FBBF24' : '#34D399';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText(hudText, 23, 44);
+        ctx.fillText(hudText, 18, 66);
         ctx.restore();
 
         levels.forEach((lvl) => {
@@ -2623,23 +2893,29 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           const isZeroGamma = st === liveOptionsChain.zeroGammaStrikeTicks;
           const isMaxPain = st === liveOptionsChain.maxPainStrikeTicks;
           const isPositiveGamma = lvl.net_gex_usd >= 0;
-          const gexMillions = (lvl.net_gex_usd / 1_000_000).toFixed(2);
+          const gexLabel = fmtGex(lvl.net_gex_usd);
           const gexBarW = Math.max(8, Math.round((Math.abs(lvl.net_gex_usd) / maxAbsGex) * 110));
 
           ctx.save();
-          ctx.fillStyle = isPositiveGamma ? 'rgba(16, 185, 129, 0.30)' : 'rgba(168, 85, 247, 0.30)';
+          ctx.fillStyle = isPositiveGamma
+            ? 'rgba(0, 230, 118, 0.30)'
+            : isDeepChart
+            ? 'rgba(168, 85, 247, 0.30)'
+            : 'rgba(244, 63, 94, 0.30)';
           ctx.fillRect(chartRightX - gexBarW, y - 4, gexBarW, 8);
 
           if (isCallWall || isPutWall || isZeroGamma || isMaxPain) {
             const col = isCallWall
               ? '#00E676'
               : isPutWall
-              ? '#F43F5E'
+              ? isDeepChart
+                ? '#C084FC'
+                : '#F43F5E'
               : isZeroGamma
-              ? '#FFD600'
-              : '#A855F7';
+              ? '#38BDF8'
+              : '#FBBF24';
             ctx.strokeStyle = col;
-            ctx.lineWidth = isCallWall || isPutWall ? 1.8 : 1.3;
+            ctx.lineWidth = isCallWall || isPutWall ? 1.8 : 1.35;
             ctx.setLineDash(isCallWall || isPutWall ? [] : [6, 4]);
             ctx.beginPath();
             ctx.moveTo(0, y);
@@ -2647,17 +2923,18 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             ctx.stroke();
             ctx.setLineDash([]);
 
+            const oiUnit = liveOptionsChain.currency === 'XAU' ? ' oz' : '';
             const title = isCallWall
-              ? `CALL WALL [DERIBIT] @ $${strikeUsd.toLocaleString()} (Call OI: ${lvl.call_oi.toLocaleString()} · Put OI: ${lvl.put_oi.toLocaleString()} · +$${gexMillions}M GEX)`
+              ? `CALL WALL [${venueTag}] @ $${strikeUsd.toLocaleString()} (Call OI: ${lvl.call_oi.toLocaleString()}${oiUnit} · Put OI: ${lvl.put_oi.toLocaleString()}${oiUnit} · ${gexLabel} GEX)`
               : isPutWall
-              ? `PUT WALL [DERIBIT] @ $${strikeUsd.toLocaleString()} (Put OI: ${lvl.put_oi.toLocaleString()} · Call OI: ${lvl.call_oi.toLocaleString()} · $${gexMillions}M GEX)`
+              ? `PUT WALL [${venueTag}] @ $${strikeUsd.toLocaleString()} (Put OI: ${lvl.put_oi.toLocaleString()}${oiUnit} · Call OI: ${lvl.call_oi.toLocaleString()}${oiUnit} · ${gexLabel} GEX)`
               : isZeroGamma
-              ? `ZERO GAMMA FLIP [DERIBIT] @ $${strikeUsd.toLocaleString()} (OI: ${(lvl.call_oi + lvl.put_oi).toLocaleString()})`
-              : `MAX PAIN [DERIBIT] @ $${strikeUsd.toLocaleString()} (OI: ${(lvl.call_oi + lvl.put_oi).toLocaleString()})`;
+              ? `ZERO GAMMA FLIP [${venueTag}] @ $${strikeUsd.toLocaleString()} (OI: ${(lvl.call_oi + lvl.put_oi).toLocaleString()}${oiUnit} · IV: ${lvl.avg_iv}%)`
+              : `MAX PAIN [${venueTag}] @ $${strikeUsd.toLocaleString()} (OI: ${(lvl.call_oi + lvl.put_oi).toLocaleString()}${oiUnit} · IV: ${lvl.avg_iv}%)`;
 
             ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
             const tw = ctx.measureText(title).width + 12;
-            ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.93)';
             ctx.fillRect(16, y - 9, tw, 17);
             ctx.strokeStyle = col;
             ctx.lineWidth = 1.2;
@@ -2679,7 +2956,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             ctx.font = 'bold 8px "JetBrains Mono", monospace';
             ctx.textAlign = 'right';
             ctx.fillText(
-              `[DERIBIT] STRIKE $${strikeUsd.toLocaleString()} · C:${lvl.call_oi.toLocaleString()} P:${lvl.put_oi.toLocaleString()} (${isPositiveGamma ? '+' : ''}$${gexMillions}M γ)`,
+              `[${venueTag}] $${strikeUsd.toLocaleString()} · C:${lvl.call_oi.toLocaleString()} P:${lvl.put_oi.toLocaleString()} (${gexLabel} γ)`,
               chartRightX - 4,
               y - 5
             );
@@ -2687,20 +2964,23 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           ctx.restore();
         });
       } else {
-        // MT5 Forex / Metals have no public Options chain -> Show honest notice banner
         ctx.save();
-        const noticeText = `[NOTICE] MT5 FOREX/GOLD KHÔNG CÓ DỮ LIỆU OPTIONS CÔNG KHAI (CHỈ HỖ TRỢ DERIBIT LIVE CHO BTC & ETH)`;
+        const noticeText = isOptionsLoading
+          ? `ĐANG NẠP CHUỖI QUYỀN CHỌN ${resolvedOptCurr === 'XAU' ? 'VÀNG OPRA/CBOE (RUST NATIVE)' : 'DERIBIT LIVE'}...`
+          : resolvedOptCurr === null
+          ? `[NOTICE] CẶP NGOẠI HỐI OTC NÀY KHÔNG CÓ OPTIONS CÔNG KHAI (HỖ TRỢ VÀNG XAUUSD/XAUUSDT CBOE & BTC/ETH DERIBIT)`
+          : `[NOTICE] ĐANG KẾT NỐI LẠI DỮ LIỆU OPTIONS THỰC TẾ (${resolvedOptCurr})...`;
         ctx.font = 'bold 9px "JetBrains Mono", monospace';
         const nw = ctx.measureText(noticeText).width + 18;
         ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-        ctx.fillRect(14, 34, nw, 20);
-        ctx.strokeStyle = '#F59E0B';
+        ctx.fillRect(10, 56, nw, 20);
+        ctx.strokeStyle = isOptionsLoading ? '#38BDF8' : '#F59E0B';
         ctx.lineWidth = 1.2;
-        ctx.strokeRect(14, 34, nw, 20);
-        ctx.fillStyle = '#FBBF24';
+        ctx.strokeRect(10, 56, nw, 20);
+        ctx.fillStyle = isOptionsLoading ? '#38BDF8' : '#FBBF24';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText(noticeText, 23, 44);
+        ctx.fillText(noticeText, 18, 66);
         ctx.restore();
       }
     }
@@ -2790,7 +3070,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             ctx.fillStyle = '#EF4444';
             ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
             ctx.textAlign = 'center';
-            ctx.fillText('⚡ STOP RUN', bx, y - 8);
+            ctx.fillText('▲ STOP RUN', bx, y - 8);
           }
         } else if (isLowSweep) {
           const y = priceToY(cur.low_ticks);
@@ -2798,7 +3078,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             ctx.fillStyle = '#10B981';
             ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
             ctx.textAlign = 'center';
-            ctx.fillText('⚡ STOP RUN', bx, y + 14);
+            ctx.fillText('▼ STOP RUN', bx, y + 14);
           }
         }
       }
@@ -2884,7 +3164,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             const isBuyDom = cell.delta_units >= 0;
             ctx.beginPath();
             ctx.arc(bx, y, radius, 0, Math.PI * 2);
-            ctx.fillStyle = isBuyDom ? 'rgba(0, 230, 118, 0.28)' : 'rgba(168, 85, 247, 0.28)';
+            ctx.fillStyle = isBuyDom
+              ? 'rgba(0, 230, 118, 0.28)'
+              : isDeepChart
+              ? 'rgba(168, 85, 247, 0.28)'
+              : 'rgba(242, 54, 69, 0.28)';
             ctx.fill();
             ctx.strokeStyle = isBuyDom ? bullPrimary : bearBorder;
             ctx.lineWidth = 1.2;
@@ -3098,6 +3382,109 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         drawHandleCircle(midHandleX, y1, drawing.color);
         drawHandleCircle(x0, midY, drawing.color);
         drawHandleCircle(rawX1, midY, drawing.color);
+      } else if (drawing.type === 'fixed_range_vp' && drawing.points.length >= 2) {
+        // =====================================================================
+        // ATAS / SIERRA CHART FIXED RANGE VOLUME PROFILE (FRVP)
+        // Aggregates exact Footprint Buy/Sell volume across [t0, t1],
+        // renders 2-tone profile + 70% Steidlmayer VAH/VAL + POC ray!
+        // =====================================================================
+        const p0 = drawing.points[0];
+        const p1 = drawing.points[1];
+        const x0 = timeToX(p0.time_us);
+        const rawX1 = timeToX(p1.time_us);
+        const left = Math.min(x0, rawX1);
+        const right = Math.max(x0, rawX1, left + 36);
+        const rayRight = drawing.extendRight ? chartRightX : right;
+
+        const frvp = computeFixedRangeVolumeProfile(
+          allBars,
+          p0.time_us,
+          p1.time_us,
+          Math.max(1, instMeta.tickSize * 4)
+        );
+
+        if (frvp && frvp.bins.length > 0) {
+          const topY = priceToY(frvp.highTicks);
+          const botY = priceToY(frvp.lowTicks);
+          const boxTop = Math.min(topY, botY) - 4;
+          const boxH = Math.max(14, Math.abs(botY - topY) + 8);
+
+          // Range backdrop & vertical start/end anchor lines
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.36)';
+          ctx.fillRect(left, boxTop, right - left, boxH);
+          ctx.strokeStyle = isSelected || isHovered ? '#38BDF8' : 'rgba(56, 189, 248, 0.55)';
+          ctx.lineWidth = isSelected || isHovered ? 1.6 : 1.1;
+          ctx.setLineDash([4, 3]);
+          ctx.strokeRect(left, boxTop, right - left, boxH);
+          ctx.setLineDash([]);
+
+          const maxBarPx = Math.max(24, Math.min(180, (right - left) * 0.68));
+          const binPxH = Math.max(
+            3,
+            Math.min(13, Math.abs(priceToY(frvp.pocTicks) - priceToY(frvp.pocTicks + frvp.binStepTicks)) - 0.8)
+          );
+
+          frvp.bins.forEach((b) => {
+            const by = priceToY(b.priceTicks) - binPxH / 2;
+            if (by + binPxH < 0 || by > chartHeight) return;
+            const inVa = b.priceTicks >= frvp.valTicks && b.priceTicks <= frvp.vahTicks;
+            const isPoc = b.priceTicks === frvp.pocTicks;
+            const totalW = Math.max(3, (b.totalUnits / frvp.maxBinUnits) * maxBarPx);
+            const sellW = b.totalUnits > 0 ? Math.round((b.sellUnits / b.totalUnits) * totalW) : 0;
+            const buyW = Math.max(0, totalW - sellW);
+
+            if (isPoc) {
+              ctx.fillStyle = 'rgba(251, 191, 36, 0.88)';
+              ctx.fillRect(left + 1, by, totalW, Math.max(2, binPxH));
+            } else {
+              if (sellW > 0) {
+                ctx.fillStyle = inVa ? 'rgba(244, 63, 94, 0.68)' : 'rgba(244, 63, 94, 0.30)';
+                ctx.fillRect(left + 1, by, sellW, Math.max(2, binPxH));
+              }
+              if (buyW > 0) {
+                ctx.fillStyle = inVa ? 'rgba(16, 185, 129, 0.72)' : 'rgba(16, 185, 129, 0.32)';
+                ctx.fillRect(left + 1 + sellW, by, buyW, Math.max(2, binPxH));
+              }
+            }
+          });
+
+          // Draw FRVP POC, VAH, VAL Horizontal Lines
+          const drawFrvpLine = (ticks: number, tag: string, col: string, solid: boolean) => {
+            const ly = priceToY(ticks);
+            if (ly < 4 || ly > chartHeight - 4) return;
+            ctx.save();
+            ctx.strokeStyle = col;
+            ctx.lineWidth = solid ? 1.8 : 1.25;
+            if (!solid) ctx.setLineDash([4, 3]);
+            ctx.beginPath();
+            ctx.moveTo(left, ly);
+            ctx.lineTo(rayRight, ly);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = col;
+            ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText(`${tag} ${formatInstrumentPrice(ticks, instrumentId)}`, rayRight - 4, ly - 3);
+            ctx.restore();
+          };
+          drawFrvpLine(frvp.pocTicks, 'FR-POC', '#FBBF24', true);
+          drawFrvpLine(frvp.vahTicks, 'FR-VAH', '#10B981', false);
+          drawFrvpLine(frvp.valTicks, 'FR-VAL', '#38BDF8', false);
+
+          drawBadgePill(
+            `FRVP (${frvp.barCount} nến) · POC: ${formatInstrumentPrice(frvp.pocTicks, instrumentId)} · ΣV: ${frvp.totalVolume.toLocaleString()} · Δ: ${frvp.totalDelta >= 0 ? '+' : ''}${frvp.totalDelta.toLocaleString()}`,
+            (left + right) / 2,
+            Math.max(18, boxTop - 11),
+            'rgba(11, 15, 23, 0.95)',
+            '#38BDF8',
+            '#F8FAFC'
+          );
+        }
+
+        const y0 = priceToY(p0.price_ticks);
+        const y1 = priceToY(p1.price_ticks);
+        drawHandleCircle(x0, y0, '#38BDF8');
+        drawHandleCircle(rawX1, y1, '#38BDF8');
       } else if (drawing.type === 'price_range' && drawing.points.length >= 2) {
         // TradingView Price & Order Flow Range Ruler (Measure Tool)
         const p0 = drawing.points[0];
@@ -3989,18 +4376,36 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     ctx.lineTo(width, timeTop);
     ctx.stroke();
 
-    ctx.font = '600 9.5px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#CBD5E1';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const timeLabelStep = Math.max(1, Math.ceil(55 / barPitch));
+    const timeLabelStep = Math.max(1, Math.ceil(68 / barPitch));
+    let prevLabelDayKey = '';
     analyzedBars.forEach((bar, idx) => {
       const centerX = startX + idx * barPitch + barWidth / 2;
-      if (centerX >= 25 && centerX <= chartRightX - 15) {
+      if (centerX >= 32 && centerX <= chartRightX - 20) {
         if (idx % timeLabelStep === 0) {
           const date = new Date(bar.bar_start_us / 1000);
-          const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-          ctx.fillText(timeStr, centerX, timeTop + timeAxisH / 2);
+          const dd = String(date.getDate()).padStart(2, '0');
+          const mm = String(date.getMonth() + 1).padStart(2, '0');
+          const dayKey = `${date.getFullYear()}-${mm}-${dd}`;
+          const hh = String(date.getHours()).padStart(2, '0');
+          const mn = String(date.getMinutes()).padStart(2, '0');
+          const isNewDay = prevLabelDayKey !== '' && dayKey !== prevLabelDayKey;
+          prevLabelDayKey = dayKey;
+
+          if (barInterval >= 86_400_000_000) {
+            ctx.font = 'bold 9.5px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#E2E8F0';
+            ctx.fillText(`${dd}/${mm}`, centerX, timeTop + timeAxisH / 2);
+          } else if (isNewDay || (hh === '00' && mn === '00')) {
+            ctx.font = 'bold 9.5px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#38BDF8';
+            ctx.fillText(`${dd}/${mm}`, centerX, timeTop + timeAxisH / 2);
+          } else {
+            ctx.font = '600 9.5px "JetBrains Mono", monospace';
+            ctx.fillStyle = '#CBD5E1';
+            ctx.fillText(`${hh}:${mn}`, centerX, timeTop + timeAxisH / 2);
+          }
         }
       }
     });
@@ -4082,6 +4487,26 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(priceStr, axisX + axisW / 2, curY);
+
+        // Live Real-Time Candle Countdown Pill (ATAS / TradingView Standard)
+        const tfSec = Math.max(60, Math.round((activeBar?.timeframe_us || currentTimeframeUs || 60_000_000) / 1_000_000));
+        const remSec = Math.max(0, tfSec - (liveClockSec % tfSec));
+        const remH = Math.floor(remSec / 3600);
+        const remM = Math.floor((remSec % 3600) / 60);
+        const remS = remSec % 60;
+        const timerStr =
+          remH > 0
+            ? `${remH}:${String(remM).padStart(2, '0')}:${String(remS).padStart(2, '0')}`
+            : `${String(remM).padStart(2, '0')}:${String(remS).padStart(2, '0')}`;
+        const timerY = Math.min(chartHeight - 8, curY + badgeH / 2 + 8);
+        ctx.fillStyle = '#181E2B';
+        ctx.fillRect(axisX + 1, timerY - 7, axisW - 2, 14);
+        ctx.strokeStyle = lineBadgeColor;
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(axisX + 1, timerY - 7, axisW - 2, 14);
+        ctx.fillStyle = '#CBD5E1';
+        ctx.font = '600 8.5px "JetBrains Mono", monospace';
+        ctx.fillText(timerStr, axisX + axisW / 2, timerY);
         ctx.restore();
       }
     }
@@ -4169,6 +4594,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         ctx.restore();
       }
     }
+    });
+    return () => cancelAnimationFrame(rafDrawId);
   }, [
     allBars,
     zoom,
@@ -4205,9 +4632,17 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
     showIcebergs,
     showPriorDayLevels,
     showStackedImbalances,
+    showTpoProfile,
+    sessionTpoProfile,
+    showClusterSearch,
+    showUnfinishedAuction,
+    unfinishedAuctions,
+    isOptionsLoading,
     tickAggregation,
     showHeatmap ? heatmapSlices : null,
     showChartDom || showAbsorption ? orderBook : null,
+    orderBook?.mid_price_ticks,
+    liveClockSec,
     showOptions ? optionsSummary : null,
     showOptions ? liveOptionsChain : null,
     vwap,
@@ -4274,7 +4709,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
         <div
           style={{
             position: 'absolute',
-            top: '8px',
+            top: '28px',
             left: '10px',
             display: 'flex',
             alignItems: 'center',
@@ -4308,20 +4743,20 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             }}
             title="Mở Quản Lý Chỉ Báo ATAS (Phím tắt: Ctrl+I)"
           >
-            <span>⚙ Chỉ Báo</span>
+            <span>Chỉ Báo</span>
           </button>
 
-          <span style={{ width: '1px', height: '12px', background: '#2D374D', margin: '0 1px' }} />
+          <span style={{ width: '1px', height: '12px', background: '#263042', margin: '0 2px' }} />
 
           {/* VWAP */}
           <button
             onClick={() => setShowVwap(!showVwap)}
             style={{
-              background: showVwap ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
-              color: showVwap ? '#38BDF8' : '#64748B',
-              border: showVwap ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid transparent',
-              borderRadius: '2px',
-              padding: '1px 4px',
+              background: showVwap ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+              color: showVwap ? '#38BDF8' : '#788699',
+              border: showVwap ? '1px solid rgba(56, 189, 248, 0.42)' : '1px solid transparent',
+              borderRadius: '3px',
+              padding: '1px 5px',
               fontSize: '9px',
               fontWeight: 700,
               cursor: 'pointer',
@@ -4335,11 +4770,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           <button
             onClick={() => setShowCvdPanel(!showCvdPanel)}
             style={{
-              background: showCvdPanel ? 'rgba(0, 229, 255, 0.15)' : 'transparent',
-              color: showCvdPanel ? '#00E5FF' : '#64748B',
-              border: showCvdPanel ? '1px solid rgba(0, 229, 255, 0.4)' : '1px solid transparent',
-              borderRadius: '2px',
-              padding: '1px 4px',
+              background: showCvdPanel ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+              color: showCvdPanel ? '#38BDF8' : '#788699',
+              border: showCvdPanel ? '1px solid rgba(56, 189, 248, 0.42)' : '1px solid transparent',
+              borderRadius: '3px',
+              padding: '1px 5px',
               fontSize: '9px',
               fontWeight: 700,
               cursor: 'pointer',
@@ -4353,11 +4788,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           <button
             onClick={() => setShowVolHistogram(!showVolHistogram)}
             style={{
-              background: showVolHistogram ? 'rgba(8, 153, 129, 0.15)' : 'transparent',
-              color: showVolHistogram ? '#089981' : '#64748B',
-              border: showVolHistogram ? '1px solid rgba(8, 153, 129, 0.4)' : '1px solid transparent',
-              borderRadius: '2px',
-              padding: '1px 4px',
+              background: showVolHistogram ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+              color: showVolHistogram ? '#38BDF8' : '#788699',
+              border: showVolHistogram ? '1px solid rgba(56, 189, 248, 0.42)' : '1px solid transparent',
+              borderRadius: '3px',
+              padding: '1px 5px',
               fontSize: '9px',
               fontWeight: 700,
               cursor: 'pointer',
@@ -4371,11 +4806,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           <button
             onClick={() => setShowStackedImbalances(!showStackedImbalances)}
             style={{
-              background: showStackedImbalances ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
-              color: showStackedImbalances ? '#F59E0B' : '#64748B',
-              border: showStackedImbalances ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid transparent',
-              borderRadius: '2px',
-              padding: '1px 4px',
+              background: showStackedImbalances ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+              color: showStackedImbalances ? '#38BDF8' : '#788699',
+              border: showStackedImbalances ? '1px solid rgba(56, 189, 248, 0.42)' : '1px solid transparent',
+              borderRadius: '3px',
+              padding: '1px 5px',
               fontSize: '9px',
               fontWeight: 700,
               cursor: 'pointer',
@@ -4389,11 +4824,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           <button
             onClick={() => setShowVolumeProfile(!showVolumeProfile)}
             style={{
-              background: showVolumeProfile ? 'rgba(168, 85, 247, 0.15)' : 'transparent',
-              color: showVolumeProfile ? '#C084FC' : '#64748B',
-              border: showVolumeProfile ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid transparent',
-              borderRadius: '2px',
-              padding: '1px 4px',
+              background: showVolumeProfile ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+              color: showVolumeProfile ? '#38BDF8' : '#788699',
+              border: showVolumeProfile ? '1px solid rgba(56, 189, 248, 0.42)' : '1px solid transparent',
+              borderRadius: '3px',
+              padding: '1px 5px',
               fontSize: '9px',
               fontWeight: 700,
               cursor: 'pointer',
@@ -4403,20 +4838,87 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             D-VP
           </button>
 
+          {/* TPO Market Profile (IBH/IBL + Single Prints) */}
+          <button
+            onClick={() => {
+              if (!showTpoProfile && onRequirePrivilege && !onRequirePrivilege('tpo_profile')) return;
+              setShowTpoProfile(!showTpoProfile);
+            }}
+            data-testid="pill-tpo-profile"
+            style={{
+              background: showTpoProfile ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+              color: showTpoProfile ? '#38BDF8' : '#788699',
+              border: showTpoProfile ? '1px solid rgba(56, 189, 248, 0.42)' : '1px solid transparent',
+              borderRadius: '3px',
+              padding: '1px 5px',
+              fontSize: '9px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="TPO Market Profile (Chữ cái A-Z 30p, IBH/IBL 60p & Single Prints)"
+          >
+            TPO
+          </button>
+
+          {/* ATAS Cluster Search */}
+          <button
+            onClick={() => {
+              if (!showClusterSearch && onRequirePrivilege && !onRequirePrivilege('cluster_search')) return;
+              setShowClusterSearch(!showClusterSearch);
+            }}
+            data-testid="pill-cluster-search"
+            style={{
+              background: showClusterSearch ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+              color: showClusterSearch ? '#38BDF8' : '#788699',
+              border: showClusterSearch ? '1px solid rgba(56, 189, 248, 0.42)' : '1px solid transparent',
+              borderRadius: '3px',
+              padding: '1px 5px',
+              fontSize: '9px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="ATAS Cluster Search — Tô nổi cụm Volume Cá Mập đột biến trong nến"
+          >
+            CLS
+          </button>
+
+          {/* Unfinished Auction (UA) */}
+          <button
+            onClick={() => {
+              if (!showUnfinishedAuction && onRequirePrivilege && !onRequirePrivilege('unfinished_auction')) return;
+              setShowUnfinishedAuction(!showUnfinishedAuction);
+            }}
+            data-testid="pill-unfinished-auction"
+            style={{
+              background: showUnfinishedAuction ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+              color: showUnfinishedAuction ? '#38BDF8' : '#788699',
+              border: showUnfinishedAuction ? '1px solid rgba(56, 189, 248, 0.42)' : '1px solid transparent',
+              borderRadius: '3px',
+              padding: '1px 5px',
+              fontSize: '9px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+            title="Unfinished Auction — Đấu giá dở dang đỉnh/đáy nến (Sierra / ATAS Standard)"
+          >
+            UA
+          </button>
+
           {/* MBO Bundle (Iceberg, Stop Runs, Sweeps) */}
           <button
             onClick={() => {
+              if (!showIcebergs && onRequirePrivilege && !onRequirePrivilege('mbo_l3')) return;
               const next = !showIcebergs;
               setShowIcebergs(next);
               setShowStopRuns(next);
               setShowSweeps(next);
             }}
             style={{
-              background: showIcebergs ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
-              color: showIcebergs ? '#38BDF8' : '#64748B',
-              border: showIcebergs ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid transparent',
-              borderRadius: '2px',
-              padding: '1px 4px',
+              background: showIcebergs ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+              color: showIcebergs ? '#38BDF8' : '#788699',
+              border: showIcebergs ? '1px solid rgba(56, 189, 248, 0.42)' : '1px solid transparent',
+              borderRadius: '3px',
+              padding: '1px 5px',
               fontSize: '9px',
               fontWeight: 700,
               cursor: 'pointer',
@@ -4430,11 +4932,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           <button
             onClick={() => setShowNakedPoc(!showNakedPoc)}
             style={{
-              background: showNakedPoc ? 'rgba(251, 191, 36, 0.15)' : 'transparent',
-              color: showNakedPoc ? '#FBBF24' : '#64748B',
-              border: showNakedPoc ? '1px solid rgba(251, 191, 36, 0.4)' : '1px solid transparent',
-              borderRadius: '2px',
-              padding: '1px 4px',
+              background: showNakedPoc ? 'rgba(56, 189, 248, 0.14)' : 'transparent',
+              color: showNakedPoc ? '#38BDF8' : '#788699',
+              border: showNakedPoc ? '1px solid rgba(56, 189, 248, 0.42)' : '1px solid transparent',
+              borderRadius: '3px',
+              padding: '1px 5px',
               fontSize: '9px',
               fontWeight: 700,
               cursor: 'pointer',
@@ -4444,15 +4946,43 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
             NPOC
           </button>
 
-          {/* Top 5 Backtested Buy/Sell Horizontal Zone Lines */}
+          <span style={{ width: '1px', height: '12px', background: '#263042', margin: '0 2px' }} />
+
+          {/* Quick-Toggle Gold & Crypto Options Call/Put Walls & GEX */}
           <button
-            onClick={() => setShowPropZoneLines(!showPropZoneLines)}
+            onClick={() => {
+              if (!showOptions && onRequirePrivilege && !onRequirePrivilege('options_gex')) return;
+              setShowOptions(!showOptions);
+            }}
+            data-testid="pill-opt-gex"
             style={{
-              background: showPropZoneLines ? 'rgba(16, 185, 129, 0.18)' : 'transparent',
-              color: showPropZoneLines ? '#10B981' : '#64748B',
-              border: showPropZoneLines ? '1px solid rgba(16, 185, 129, 0.45)' : '1px solid transparent',
-              borderRadius: '2px',
-              padding: '1px 4px',
+              background: showOptions ? 'rgba(16, 185, 129, 0.16)' : 'transparent',
+              color: showOptions ? '#34D399' : '#8E9BAE',
+              border: showOptions ? '1px solid rgba(16, 185, 129, 0.45)' : '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '3px',
+              padding: '1px 5px',
+              fontSize: '9px',
+              fontWeight: 800,
+              cursor: 'pointer',
+            }}
+            title="Gold & Crypto Options Call/Put Walls, Zero Gamma & Max Pain (OPRA/CBOE Rust Native + Deribit)"
+          >
+            OPT/GEX
+          </button>
+
+          {/* Top 7 Backtested Buy/Sell Horizontal Zone Lines */}
+          <button
+            onClick={() => {
+              if (!showPropZoneLines && onRequirePrivilege && !onRequirePrivilege('top7_zones')) return;
+              setShowPropZoneLines(!showPropZoneLines);
+            }}
+            data-testid="pill-top7-zones"
+            style={{
+              background: showPropZoneLines ? 'rgba(16, 185, 129, 0.16)' : 'transparent',
+              color: showPropZoneLines ? '#34D399' : '#8E9BAE',
+              border: showPropZoneLines ? '1px solid rgba(16, 185, 129, 0.45)' : '1px solid rgba(148, 163, 184, 0.2)',
+              borderRadius: '3px',
+              padding: '1px 5px',
               fontSize: '9px',
               fontWeight: 800,
               cursor: 'pointer',
@@ -4717,6 +5247,8 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                   ? 'SHORT R:R'
                   : sel.type === 'imbalance_box'
                   ? 'ORDER BLOCK'
+                  : sel.type === 'fixed_range_vp'
+                  ? 'FRVP PROFILE'
                   : sel.type === 'horizontal_line'
                   ? 'HORIZ LINE'
                   : sel.type === 'price_range'
@@ -4753,7 +5285,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
               )}
 
               {/* Line Style & Extend Right Toggle */}
-              {['imbalance_box', 'trendline', 'arrow', 'horizontal_line', 'horizontal_ray', 'fibonacci'].includes(sel.type) && (
+              {['imbalance_box', 'fixed_range_vp', 'trendline', 'arrow', 'horizontal_line', 'horizontal_ray', 'fibonacci'].includes(sel.type) && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '3px', paddingRight: '5px', borderRight: '1px solid #2A3244' }}>
                   <button
                     onClick={() =>
@@ -4777,7 +5309,7 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
                     {sel.lineStyle === 'dashed' ? '┄ Đứt' : '━ Liền'}
                   </button>
 
-                  {['imbalance_box', 'fibonacci'].includes(sel.type) && (
+                  {['imbalance_box', 'fixed_range_vp', 'fibonacci'].includes(sel.type) && (
                     <button
                       onClick={() => onDrawingUpdated?.({ ...sel, extendRight: !sel.extendRight })}
                       style={{
@@ -5025,6 +5557,51 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           );
         })()}
 
+        {/* CME Globex Tier-1 Public Sync Status (Only visible during initial ~250ms HTTP load or if offline) */}
+        {instrumentId.startsWith('CME:') && sanitizedClosedBars.length === 0 && !sanitizedActiveBar && (
+          <div
+            data-testid="cme-mbo-awaiting-key-card"
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'rgba(13, 17, 24, 0.94)',
+              border: '1px solid #243044',
+              borderRadius: '6px',
+              padding: '16px 20px',
+              maxWidth: '440px',
+              textAlign: 'center',
+              zIndex: 18,
+              boxShadow: '0 20px 50px rgba(0, 0, 0, 0.72)',
+            }}
+          >
+            <div style={{ fontSize: '12px', fontWeight: 800, color: '#38BDF8', marginBottom: '6px' }}>
+              ĐANG TẢI NẾN &amp; KHỐI LƯỢNG CME GLOBEX THẬT MIỄN PHÍ ({instMeta.symbol}=F)...
+            </div>
+            <div style={{ fontSize: '11px', color: '#94A3B8', lineHeight: 1.5, marginBottom: '12px' }}>
+              Biểu đồ Nến &amp; Khối lượng CME chạy miễn phí 100% không cần khóa. Nếu muốn mở khóa thêm{' '}
+              <strong style={{ color: '#34D399' }}>Sổ lệnh hàng đợi FIFO từng lô (L3 MBO) &amp; Iceberg gốc</strong>, bạn có thể nhập khóa Databento / Rithmic.
+            </div>
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('deepchart:open_cme_modal'))}
+              style={{
+                background: '#162032',
+                color: '#E2E8F0',
+                border: '1px solid #2E3D56',
+                borderRadius: '4px',
+                padding: '6px 14px',
+                fontSize: '10.5px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Cấu Hình Mở Khóa Sổ Lệnh L3 MBO
+            </button>
+          </div>
+        )}
+
         {/* Jump-to-Live Button when panned away */}
         {(Math.abs(panX) > 40 || Math.abs(panY) > 40 || priceScale !== 1.0) && (
           <button
@@ -5065,8 +5642,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           showOfVp,
           showOfDeltaP,
           showBarHeadStats,
+          showClusterSearch,
+          showUnfinishedAuction,
           showPriorDayLevels,
           showVolumeProfile,
+          showTpoProfile,
           showValueAreaLines,
           showVwap,
           showNakedPoc,
@@ -5085,6 +5665,14 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           showRiskManager,
         }}
         onChangeConfig={(updates) => {
+          if (updates.showPropZoneLines && onRequirePrivilege && !onRequirePrivilege('top7_zones')) return;
+          if (updates.showOptions && onRequirePrivilege && !onRequirePrivilege('options_gex')) return;
+          if (updates.showTpoProfile && onRequirePrivilege && !onRequirePrivilege('tpo_profile')) return;
+          if (updates.showClusterSearch && onRequirePrivilege && !onRequirePrivilege('cluster_search')) return;
+          if (updates.showUnfinishedAuction && onRequirePrivilege && !onRequirePrivilege('unfinished_auction')) return;
+          if ((updates.showIcebergs || updates.showStopRuns || updates.showSweeps) && onRequirePrivilege && !onRequirePrivilege('mbo_l3')) return;
+          if (updates.showRiskManager && onRequirePrivilege && !onRequirePrivilege('risk_manager')) return;
+
           if (updates.showVolHistogram !== undefined) setShowVolHistogram(updates.showVolHistogram);
           if (updates.showCvdPanel !== undefined) setShowCvdPanel(updates.showCvdPanel);
           if (updates.showCotGrid !== undefined) setShowCotGrid(updates.showCotGrid);
@@ -5092,8 +5680,11 @@ export const FootprintCanvas: React.FC<FootprintCanvasProps> = ({
           if (updates.showOfVp !== undefined) setShowOfVp(updates.showOfVp);
           if (updates.showOfDeltaP !== undefined) setShowOfDeltaP(updates.showOfDeltaP);
           if (updates.showBarHeadStats !== undefined) setShowBarHeadStats(updates.showBarHeadStats);
+          if (updates.showClusterSearch !== undefined) setShowClusterSearch(updates.showClusterSearch);
+          if (updates.showUnfinishedAuction !== undefined) setShowUnfinishedAuction(updates.showUnfinishedAuction);
           if (updates.showPriorDayLevels !== undefined) setShowPriorDayLevels(updates.showPriorDayLevels);
           if (updates.showVolumeProfile !== undefined) setShowVolumeProfile(updates.showVolumeProfile);
+          if (updates.showTpoProfile !== undefined) setShowTpoProfile(updates.showTpoProfile);
           if (updates.showValueAreaLines !== undefined) setShowValueAreaLines(updates.showValueAreaLines);
           if (updates.showVwap !== undefined) setShowVwap(updates.showVwap);
           if (updates.showNakedPoc !== undefined) setShowNakedPoc(updates.showNakedPoc);

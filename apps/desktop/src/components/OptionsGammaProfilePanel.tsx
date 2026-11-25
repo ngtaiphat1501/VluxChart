@@ -135,10 +135,17 @@ export const OptionsGammaProfilePanel: React.FC<OptionsGammaProfilePanelProps> =
     ctx.fillRect(0, 0, width, height);
 
     if (isLoading && !liveChain) {
+      const isGold = optionsLiveService.resolveOptionsCurrency(instrumentId) === 'XAU';
       ctx.fillStyle = '#38BDF8';
       ctx.font = 'bold 11px "JetBrains Mono", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('ĐANG TẢI DỮ LIỆU OPTIONS THỰC TẾ TỪ SÀN DERIBIT...', width / 2, height / 2);
+      ctx.fillText(
+        isGold
+          ? 'ĐANG TẢI OPTIONS VÀNG OPRA / CBOE (RUST NATIVE)...'
+          : 'ĐANG TẢI DỮ LIỆU OPTIONS THỰC TẾ TỪ SÀN DERIBIT...',
+        width / 2,
+        height / 2
+      );
       return;
     }
 
@@ -146,10 +153,10 @@ export const OptionsGammaProfilePanel: React.FC<OptionsGammaProfilePanelProps> =
       ctx.fillStyle = '#F59E0B';
       ctx.font = 'bold 11px "Inter", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('SÀN MT5 FOREX/CFD KHÔNG CÔNG KHAI SỔ LỆNH OPTIONS', width / 2, height / 2 - 10);
+      ctx.fillText('CẶP NGOẠI HỐI OTC KHÔNG CÔNG KHAI SỔ LỆNH OPTIONS', width / 2, height / 2 - 10);
       ctx.fillStyle = '#94A3B8';
       ctx.font = '10px "Inter", sans-serif';
-      ctx.fillText('(Chuyển sang BTCUSDT hoặc ETHUSDT để xem 1,000+ Hợp đồng Options thật từ Deribit)', width / 2, height / 2 + 10);
+      ctx.fillText('(Chuyển sang XAUUSD, XAUUSDT, BTCUSDT hoặc ETHUSDT để xem Options thật)', width / 2, height / 2 + 10);
       return;
     }
 
@@ -252,7 +259,7 @@ export const OptionsGammaProfilePanel: React.FC<OptionsGammaProfilePanelProps> =
       ctx.stroke();
 
       if (isHovered) {
-        ctx.fillStyle = 'rgba(0, 229, 255, 0.14)';
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.14)';
         ctx.fillRect(0, y - barH / 2 - 2, width, barH + 4);
       }
 
@@ -267,9 +274,9 @@ export const OptionsGammaProfilePanel: React.FC<OptionsGammaProfilePanelProps> =
         : isPutWall
         ? '#C084FC'
         : isZeroGamma
-        ? '#FFD600'
+        ? '#FBBF24'
         : isHovered
-        ? '#00E5FF'
+        ? '#38BDF8'
         : '#94A3B8';
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
@@ -482,59 +489,62 @@ export const OptionsGammaProfilePanel: React.FC<OptionsGammaProfilePanelProps> =
             }}
             title="Chuyển đổi giữa: Hiển thị đầy đủ chuỗi 22 Strike quanh giá Spot (Full Chain) ⇄ Đồng bộ trục Y với khung biểu đồ"
           >
-            {scaleMode === 'ladder' ? '📊 22 Strikes' : '🔗 Sync Y'}
+            {scaleMode === 'ladder' ? '22 STRIKES' : 'SYNC Y'}
           </button>
         </div>
 
         <div style={{ display: 'flex', gap: '6px', fontSize: '9px', fontWeight: 700, alignItems: 'center' }}>
           <span
             style={{
-              color: liveChain?.isRealData ? '#00E676' : '#F59E0B',
-              background: liveChain?.isRealData ? 'rgba(0, 230, 118, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+              color: liveChain?.isRealData ? '#10B981' : '#F59E0B',
+              background: liveChain?.isRealData ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)',
               padding: '1px 5px',
               borderRadius: '3px',
-              border: `1px solid ${liveChain?.isRealData ? 'rgba(0,230,118,0.35)' : 'rgba(245,158,11,0.35)'}`,
+              border: `1px solid ${liveChain?.isRealData ? 'rgba(16,185,129,0.35)' : 'rgba(245,158,11,0.35)'}`,
             }}
             title={liveChain?.sourceName}
           >
-            {liveChain?.isRealData
-              ? liveChain.currency === 'XAU'
-                ? `🟢 MULTI-EXCHANGE GOLD (${liveChain.totalContractsCount} HĐ)`
-                : `🟢 4-EXCHANGE LIVE (${liveChain.totalContractsCount} HĐ)`
-              : '⚠️ N/A FOREX'}
-          </span>
+              {liveChain?.isRealData
+                ? liveChain.currency === 'XAU'
+                  ? `● CBOE GOLD (${liveChain.totalContractsCount} HĐ)`
+                  : `● 4-EXCHANGE LIVE (${liveChain.totalContractsCount} HĐ)`
+                : '○ N/A FOREX'}
+            </span>
+          </div>
         </div>
-      </div>
 
-      {/* Top Bar 2: Key Institutional Summary Strip (Call Wall | Put Wall | Max Pain | P/C Ratio) */}
-      {liveChain?.isRealData && (
-        <div
-          style={{
-            height: '22px',
-            background: '#111622',
-            borderBottom: '1px solid #1E2532',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '0 8px',
-            fontSize: '9px',
-            fontFamily: '"JetBrains Mono", monospace',
-          }}
-        >
-          <span>
-            CW: <strong style={{ color: '#00E676' }}>${(liveChain.callWallStrikeTicks / 100).toLocaleString()}</strong>
-          </span>
-          <span>
-            PW: <strong style={{ color: '#C084FC' }}>${(liveChain.putWallStrikeTicks / 100).toLocaleString()}</strong>
-          </span>
-          <span>
-            MP: <strong style={{ color: '#FBBF24' }}>${(liveChain.maxPainStrikeTicks / 100).toLocaleString()}</strong>
-          </span>
-          <span>
-            P/C: <strong style={{ color: '#38BDF8' }}>{liveChain.putCallRatio}</strong>
-          </span>
-        </div>
-      )}
+        {/* Top Bar 2: Key Institutional Summary Strip (Call Wall | Put Wall | Zero Gamma | Max Pain | P/C Ratio) */}
+        {liveChain?.isRealData && (
+          <div
+            style={{
+              height: '22px',
+              background: '#111622',
+              borderBottom: '1px solid #1E2532',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0 8px',
+              fontSize: '9px',
+              fontFamily: '"JetBrains Mono", monospace',
+            }}
+          >
+            <span>
+              CW: <strong style={{ color: '#00E676' }}>${(liveChain.callWallStrikeTicks / 100).toLocaleString()}</strong>
+            </span>
+            <span>
+              PW: <strong style={{ color: '#C084FC' }}>${(liveChain.putWallStrikeTicks / 100).toLocaleString()}</strong>
+            </span>
+            <span>
+              ZG: <strong style={{ color: '#38BDF8' }}>${(liveChain.zeroGammaStrikeTicks / 100).toLocaleString()}</strong>
+            </span>
+            <span>
+              MP: <strong style={{ color: '#FBBF24' }}>${(liveChain.maxPainStrikeTicks / 100).toLocaleString()}</strong>
+            </span>
+            <span>
+              P/C: <strong style={{ color: '#CBD5E1' }}>{liveChain.putCallRatio}</strong>
+            </span>
+          </div>
+        )}
 
       {/* Main 4-Column Strike Profile Canvas */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>

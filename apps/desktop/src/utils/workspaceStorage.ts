@@ -37,11 +37,13 @@ export interface WorkspaceConfig {
 }
 
 const STORAGE_KEY = 'deepchart_workspace_config_v4';
-const SNAPSHOT_CACHE_KEY = 'deepchart_snapshot_cache_v6';
+const SNAPSHOT_CACHE_KEY = 'deepchart_snapshot_cache_v8';
+const BARS_CACHE_PREFIX = 'deepchart_bars_v8_';
 
 // In-memory zero-latency cache to avoid synchronous JSON.parse / JSON.stringify blocking on timeframe switches
 const MEMORY_BARS_CACHE = new Map<string, BarDTO[]>();
 const PENDING_SAVE_TIMERS = new Map<string, ReturnType<typeof setTimeout>>();
+let PENDING_SNAPSHOT_SAVE_TIMER: ReturnType<typeof setTimeout> | null = null;
 
 export const DEFAULT_WORKSPACE_CONFIG: WorkspaceConfig = {
   instrumentId: 'BYBIT:LINEAR_PERP:BTCUSDT:PERP',
@@ -87,21 +89,28 @@ export function saveWorkspaceConfig(config: Partial<WorkspaceConfig>): void {
   }
 }
 
-/// Instant Cold-Start Local Cache: Caches latest snapshot in LocalStorage
-/// Allows the terminal to render immediately on application relaunch without flicker.
+/// Instant Cold-Start Local Cache: Debounced & off-frame so symbol/timeframe switches NEVER stutter on JSON.stringify
 export function saveSnapshotCache(snapshot: ChartSnapshotDTO): void {
-  try {
-    // Only cache reasonable subset of bars (e.g. up to 100) to keep localStorage fast
-    const pruned: ChartSnapshotDTO = {
-      ...snapshot,
-      bars: snapshot.bars.slice(-100),
-      heatmap_slices: snapshot.heatmap_slices?.slice(-50),
-      recent_trades: snapshot.recent_trades?.slice(-100),
-    };
-    localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(pruned));
-  } catch (e) {
-    // Ignore quota errors if storage full
+  if (!snapshot.bars || snapshot.bars.length === 0) {
+    return;
   }
+  if (PENDING_SNAPSHOT_SAVE_TIMER) {
+    clearTimeout(PENDING_SNAPSHOT_SAVE_TIMER);
+  }
+  PENDING_SNAPSHOT_SAVE_TIMER = setTimeout(() => {
+    PENDING_SNAPSHOT_SAVE_TIMER = null;
+    try {
+      const pruned: ChartSnapshotDTO = {
+        ...snapshot,
+        bars: snapshot.bars.slice(-60),
+        heatmap_slices: snapshot.heatmap_slices?.slice(-24),
+        recent_trades: snapshot.recent_trades?.slice(-40),
+      };
+      localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(pruned));
+    } catch {
+      // Ignore quota errors if storage full
+    }
+  }, 450);
 }
 
 export function loadSnapshotCache(): ChartSnapshotDTO | null {
@@ -109,10 +118,12 @@ export function loadSnapshotCache(): ChartSnapshotDTO | null {
     const raw = localStorage.getItem(SNAPSHOT_CACHE_KEY);
     if (raw) {
       const snap = JSON.parse(raw) as ChartSnapshotDTO;
-      // Sanity check: purge obsolete mock snapshot if BTC bars are at old $95k level or 2023 mock timestamps
+      // Sanity check: purge empty snapshots, ancient pre-2024 fixtures, or corrupted non-positive prices
+      const isSynth = Boolean(snap.instrument_id && snap.instrument_id.startsWith('SYNTH:'));
       if (
-        snap.bars?.some((b) => b.bar_start_us < 1730000000000000) ||
-        (snap.instrument_id?.includes('BTC') && snap.bars?.some((b) => b.close_ticks > 8000000))
+        !Array.isArray(snap.bars) ||
+        snap.bars.length === 0 ||
+        snap.bars.some((b) => b.bar_start_us < 1704067200000000 || (!isSynth && b.close_ticks <= 0))
       ) {
         localStorage.removeItem(SNAPSHOT_CACHE_KEY);
         return null;
@@ -131,15 +142,21 @@ export function loadSymbolBars(symbol: string): BarDTO[] {
     return mem;
   }
   try {
-    const raw = localStorage.getItem(`deepchart_bars_v6_${symbol}`);
+    const raw = localStorage.getItem(`${BARS_CACHE_PREFIX}${symbol}`);
     if (raw) {
       const bars = JSON.parse(raw) as BarDTO[];
-      // Sanity check: if cached bars have mock timestamps (< Nov 2024) or wildly inaccurate mock prices, purge them
+      // Sanity check: purge ancient pre-2024 fixtures, non-positive prices, or legacy synthetic sine-wave bars
+      const isLegacySynthetic =
+        Array.isArray(bars) &&
+        bars.length >= 10 &&
+        bars.slice(0, 10).every((b) => b.trade_count === Math.round(b.total_units / 6) + 1);
+      const isSynthSym = symbol.startsWith('SYNTH:');
       if (
-        bars.some((b) => b.bar_start_us < 1730000000000000) ||
-        (symbol.includes('BTC') && bars.some((b) => b.close_ticks > 8000000 || b.close_ticks < 4000000))
+        !Array.isArray(bars) ||
+        isLegacySynthetic ||
+        bars.some((b) => b.bar_start_us < 1704067200000000 || (!isSynthSym && b.close_ticks <= 0))
       ) {
-        localStorage.removeItem(`deepchart_bars_v6_${symbol}`);
+        localStorage.removeItem(`${BARS_CACHE_PREFIX}${symbol}`);
         return [];
       }
       MEMORY_BARS_CACHE.set(symbol, bars);
@@ -152,8 +169,8 @@ export function loadSymbolBars(symbol: string): BarDTO[] {
 }
 
 export function saveSymbolBars(symbol: string, bars: BarDTO[]): void {
-  // 1. Update in-memory cache immediately (0ms latency, zero main-thread freeze)
-  const memTrimmed = bars.slice(-350);
+  // 1. Keep up to 50,000 historical bars in fast RAM cache (zero artificial 350-bar truncation!)
+  const memTrimmed = bars.length > 50_000 ? bars.slice(-50_000) : bars;
   MEMORY_BARS_CACHE.set(symbol, memTrimmed);
 
   // 2. Debounce & defer localStorage serialization off the UI interaction frame
@@ -164,9 +181,9 @@ export function saveSymbolBars(symbol: string, bars: BarDTO[]): void {
   const timer = setTimeout(() => {
     PENDING_SAVE_TIMERS.delete(symbol);
     try {
-      // Only persist the latest 140 bars to localStorage to keep JSON.stringify < 2ms
-      const storageTrimmed = memTrimmed.slice(-140);
-      localStorage.setItem(`deepchart_bars_v6_${symbol}`, JSON.stringify(storageTrimmed));
+      // Persist latest 240 bars in localStorage for instant cold-start while full history lives in RAM + Gzip Data Packs
+      const storageTrimmed = memTrimmed.slice(-240);
+      localStorage.setItem(`${BARS_CACHE_PREFIX}${symbol}`, JSON.stringify(storageTrimmed));
     } catch {
       // ignore quota error
     }
@@ -178,10 +195,15 @@ export function mergeBars(existing: BarDTO[], incoming: BarDTO[]): BarDTO[] {
   if (existing.length === 0) return incoming;
   if (incoming.length === 0) return existing;
 
-  // Sanity check: Discard existing bars if their price scale is completely mismatched (>15% deviation, e.g. mock 95k vs real 67k)
+  // Only guard against genuine cross-symbol scale collisions (>5x difference, e.g. $60k BTC vs $3.6k Gold),
+  // NEVER discard genuine multi-week/multi-year historical swings (>2% away from current price)!
   const existingPrice = existing[existing.length - 1].close_ticks;
-  const incomingPrice = incoming[0].close_ticks;
-  if (incomingPrice > 0 && Math.abs(existingPrice - incomingPrice) / incomingPrice > 0.15) {
+  const incomingPrice = incoming[incoming.length - 1].close_ticks;
+  if (
+    existingPrice > 0 &&
+    incomingPrice > 0 &&
+    Math.max(existingPrice, incomingPrice) / Math.min(existingPrice, incomingPrice) > 5.0
+  ) {
     return [...incoming].sort((a, b) => a.bar_start_us - b.bar_start_us);
   }
 

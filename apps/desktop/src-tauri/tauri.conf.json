@@ -15,6 +15,8 @@
         "title": "DeepChart — Order Flow Analytics",
         "width": 1400,
         "height": 900,
+        "minWidth": 1024,
+        "minHeight": 680,
         "resizable": true,
         "fullscreen": false
       }
@@ -25,9 +27,24 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "icon": [
+      "icons/icon.ico",
       "icons/icon.png"
-    ]
+    ],
+    "resources": {
+      "target/release/WebView2Loader.dll": "WebView2Loader.dll",
+      "../../../scripts/mt5_live_bridge.py": "scripts/mt5_live_bridge.py"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "compression": "lzma"
+      }
+    }
   }
 }

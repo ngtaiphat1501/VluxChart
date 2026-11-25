@@ -12,7 +12,27 @@ import {
   detectAbsorptionEvents,
   detectCvdDivergences,
   recalculateOptionsLevels,
+  computeProprietaryZoneLines,
+  computeFixedRangeVolumeProfile,
+  computeSessionTpoProfile,
+  detectUnfinishedAuctions,
+  computeClusterSearchThreshold,
 } from './src/utils/orderFlowMath.ts';
+import {
+  hasFeatureAccess,
+  normalizeAccountTier,
+  getTierBadgeMeta,
+} from './src/utils/entitlements.ts';
+import {
+  buildNonTimeBarsFromRealData,
+  appendLiveTradeToNonTimeSeries,
+  formatCustomFrameBadge,
+  parseSyntheticFormula,
+  evaluateFormulaAst,
+  registerSyntheticInstrument,
+  buildSyntheticBarsFromRealLegs,
+} from './src/utils/customFrameAndSyntheticEngine.ts';
+import { parseRealDatabentoMboCaptureText } from './src/services/cmeMboService.ts';
 
 console.log('=== STARTING EXHAUSTIVE ORDER FLOW MATHEMATICAL AUDIT ===\n');
 
@@ -314,6 +334,343 @@ assert(calculatedOpt.put_wall_ticks === 65000, `Put Wall matches maximum Put OI 
 assert(calculatedOpt.total_call_oi === 6700, `Total Call OI conservation: 500 + 2000 + 4200 = 6700`);
 assert(calculatedOpt.total_put_oi === 5800, `Total Put OI conservation: 3500 + 1500 + 800 = 5800`);
 assert(calculatedOpt.max_pain_ticks === 67000, `Max Pain matches payout minimizer (67000): got ${calculatedOpt.max_pain_ticks}`);
+
+// ---------------------------------------------------------------------------
+// TEST 9: Top 7 Proprietary Buy/Sell Horizontal Zone Indicators & Gold Microstructure
+// Invariants: VA-EDGE auto-disabled on Gold < H1, enabled on Gold H1+ and Crypto M5
+// ---------------------------------------------------------------------------
+console.log('\n--- TEST 9: Top 7 Proprietary Zone Lines & Gold Microstructure Adaptation ---');
+const synthetic30Bars = Array.from({ length: 30 }).map((_, idx) => {
+  const base = 384000 + Math.round(Math.sin(idx * 0.4) * 400);
+  const vol = idx === 24 ? 1200 : 300;
+  const buy = idx === 24 ? 850 : 160;
+  const sell = vol - buy;
+  return {
+    bar_start_us: 1760000000000000 + idx * 300_000_000,
+    timeframe_us: 300_000_000,
+    open_ticks: base - 30,
+    high_ticks: base + 80,
+    low_ticks: base - 80,
+    close_ticks: base + 40,
+    buy_units: buy,
+    sell_units: sell,
+    unknown_units: 0,
+    total_units: vol,
+    delta_units: buy - sell,
+    trade_count: 25,
+    poc_ticks: base,
+    value_area: null,
+    footprint: [
+      { price_ticks: base - 50, buy_units: 20, sell_units: 20, total_units: 40, delta_units: 0, unknown_units: 0, trade_count: 2 },
+      { price_ticks: base - 25, buy_units: 10, sell_units: 5, total_units: 15, delta_units: 5, unknown_units: 0, trade_count: 1 },
+      { price_ticks: base, buy_units: Math.round(buy * 0.6), sell_units: Math.round(sell * 0.6), total_units: Math.round(vol * 0.6), delta_units: Math.round((buy - sell) * 0.6), unknown_units: 0, trade_count: 10 },
+      { price_ticks: base + 25, buy_units: 40, sell_units: 10, total_units: 50, delta_units: 30, unknown_units: 0, trade_count: 3 },
+      { price_ticks: base + 50, buy_units: 30, sell_units: 10, total_units: 40, delta_units: 20, unknown_units: 0, trade_count: 2 },
+    ],
+    finality: 'Closed',
+    completeness: 'Complete',
+  };
+});
+const calc30 = computeBarStatistics(synthetic30Bars);
+const sessionVwap30 = computeSessionVwap(synthetic30Bars, 384000);
+
+const goldM5Lines = computeProprietaryZoneLines(calc30, sessionVwap30, 36, 'MT5:CFD:XAUUSD', 300_000_000);
+const goldH1Lines = computeProprietaryZoneLines(calc30, sessionVwap30, 36, 'MT5:CFD:XAUUSD', 3_600_000_000);
+const btcM5Lines = computeProprietaryZoneLines(calc30, sessionVwap30, 36, 'BYBIT:LINEAR_PERP:BTCUSDT:PERP', 300_000_000);
+
+assert(goldM5Lines.length > 0 && goldM5Lines.length <= 8, `Gold M5 Top-7 produces bounded active lines: ${goldM5Lines.length}`);
+assert(!goldM5Lines.some((l) => l.indicator === 'VA-EDGE'), `VA-EDGE strictly suppressed on Gold M5 (< H1)`);
+assert(goldH1Lines.some((l) => l.indicator === 'VA-EDGE'), `VA-EDGE enabled on Gold H1+`);
+assert(btcM5Lines.some((l) => l.indicator === 'VA-EDGE'), `VA-EDGE enabled on Crypto BTCUSDT M5`);
+
+// ---------------------------------------------------------------------------
+// TEST 10: Fixed Range Volume Profile (FRVP) Exact Accounting & 70% Value Area
+// ---------------------------------------------------------------------------
+console.log('\n--- TEST 10: ATAS Fixed Range Volume Profile (FRVP) ---');
+const frvpResult = computeFixedRangeVolumeProfile(
+  synthetic30Bars,
+  synthetic30Bars[5].bar_start_us,
+  synthetic30Bars[14].bar_start_us,
+  25
+);
+assert(frvpResult !== null && frvpResult.barCount === 10, `FRVP sliced exact 10 bars: got ${frvpResult?.barCount}`);
+assert(
+  frvpResult.valTicks <= frvpResult.pocTicks && frvpResult.pocTicks <= frvpResult.vahTicks,
+  `FRVP contiguous Value Area encloses POC (${frvpResult.valTicks} <= ${frvpResult.pocTicks} <= ${frvpResult.vahTicks})`
+);
+const frvpBinSum = frvpResult.bins.reduce((s, b) => s + b.totalUnits, 0);
+assert(frvpBinSum === frvpResult.totalVolume, `FRVP volume conservation (${frvpBinSum} === ${frvpResult.totalVolume})`);
+
+// ---------------------------------------------------------------------------
+// TEST 11: CBOT TPO Market Profile (IBH/IBL 60m A+B & Interior Single Prints)
+// ---------------------------------------------------------------------------
+console.log('\n--- TEST 11: TPO Market Profile (IBH/IBL & Single Prints) ---');
+const dayBaseUs = 86_400_000_000 * 20500;
+const tpoBars = [
+  // Period A (0..30m): trades 3600.00 - 3605.00
+  { bar_start_us: dayBaseUs, timeframe_us: 900_000_000, open_ticks: 360100, high_ticks: 360500, low_ticks: 360000, close_ticks: 360400, buy_units: 100, sell_units: 80, unknown_units: 0, total_units: 180, delta_units: 20, trade_count: 10, poc_ticks: 360200, value_area: null, footprint: [], finality: 'Closed', completeness: 'Complete' },
+  // Period B (30..60m): trades 3602.00 - 3608.00 -> IBH = 360800, IBL = 360000
+  { bar_start_us: dayBaseUs + 1_800_000_000, timeframe_us: 900_000_000, open_ticks: 360400, high_ticks: 360800, low_ticks: 360200, close_ticks: 360700, buy_units: 120, sell_units: 90, unknown_units: 0, total_units: 210, delta_units: 30, trade_count: 12, poc_ticks: 360500, value_area: null, footprint: [], finality: 'Closed', completeness: 'Complete' },
+  // Period C (60..90m): impulsive breakout from 3607.00 through 3615.00 (creating Single Prints around 3609-3612)
+  { bar_start_us: dayBaseUs + 3_600_000_000, timeframe_us: 900_000_000, open_ticks: 360700, high_ticks: 361600, low_ticks: 360700, close_ticks: 361500, buy_units: 300, sell_units: 50, unknown_units: 0, total_units: 350, delta_units: 250, trade_count: 20, poc_ticks: 361400, value_area: null, footprint: [], finality: 'Closed', completeness: 'Complete' },
+  // Period D (90..120m): consolidates high at 3613.00 - 3616.00 -> leaves 3609.00..3612.00 as interior C-period Single Prints!
+  { bar_start_us: dayBaseUs + 5_400_000_000, timeframe_us: 900_000_000, open_ticks: 361500, high_ticks: 361600, low_ticks: 361300, close_ticks: 361450, buy_units: 140, sell_units: 130, unknown_units: 0, total_units: 270, delta_units: 10, trade_count: 15, poc_ticks: 361450, value_area: null, footprint: [], finality: 'Closed', completeness: 'Complete' },
+];
+const tpoProfile = computeSessionTpoProfile(tpoBars, 100);
+assert(tpoProfile !== null, 'TPO Profile computed for session');
+assert(tpoProfile.ibhTicks === 360800 && tpoProfile.iblTicks === 360000, `TPO Initial Balance (A+B) exact: IBH=${tpoProfile.ibhTicks}, IBL=${tpoProfile.iblTicks}`);
+assert(
+  tpoProfile.singlePrintZones.some((z) => z.letter === 'C' && z.lowTicks === 360900),
+  `TPO detected interior C-period Single Print zone`
+);
+
+// ---------------------------------------------------------------------------
+// TEST 12: Unfinished Auction (UA) & Cluster Search Threshold
+// ---------------------------------------------------------------------------
+console.log('\n--- TEST 12: Unfinished Auction & Cluster Search ---');
+const uaBars = [
+  {
+    bar_start_us: 1000000,
+    timeframe_us: 60000000,
+    open_ticks: 360000,
+    high_ticks: 360300,
+    low_ticks: 359900,
+    close_ticks: 360200,
+    buy_units: 150,
+    sell_units: 110,
+    unknown_units: 0,
+    total_units: 260,
+    delta_units: 40,
+    trade_count: 18,
+    poc_ticks: 360100,
+    value_area: null,
+    footprint: [
+      { price_ticks: 359900, buy_units: 0, sell_units: 45, total_units: 45, delta_units: -45, unknown_units: 0, trade_count: 4 }, // Finished low (0 Buy)
+      { price_ticks: 360100, buy_units: 70, sell_units: 30, total_units: 100, delta_units: 40, unknown_units: 0, trade_count: 8 },
+      { price_ticks: 360300, buy_units: 80, sell_units: 35, total_units: 115, delta_units: 45, unknown_units: 0, trade_count: 6 }, // Unfinished High (both > 0!)
+    ],
+    finality: 'Closed',
+    completeness: 'Complete',
+  },
+  {
+    bar_start_us: 2000000,
+    timeframe_us: 60000000,
+    open_ticks: 360200,
+    high_ticks: 360250, // Does NOT breach 360300 -> UA High stays unmitigated!
+    low_ticks: 360000,
+    close_ticks: 360100,
+    buy_units: 60,
+    sell_units: 70,
+    unknown_units: 0,
+    total_units: 130,
+    delta_units: -10,
+    trade_count: 9,
+    poc_ticks: 360100,
+    value_area: null,
+    footprint: [
+      { price_ticks: 360000, buy_units: 0, sell_units: 30, total_units: 30, delta_units: -30, unknown_units: 0, trade_count: 3 },
+      { price_ticks: 360100, buy_units: 30, sell_units: 40, total_units: 70, delta_units: -10, unknown_units: 0, trade_count: 4 },
+      { price_ticks: 360250, buy_units: 30, sell_units: 0, total_units: 30, delta_units: 30, unknown_units: 0, trade_count: 2 },
+    ],
+    finality: 'Closed',
+    completeness: 'Complete',
+  },
+];
+const uas = detectUnfinishedAuctions(uaBars);
+assert(uas.length === 1 && uas[0].side === 'HIGH' && uas[0].priceTicks === 360300, `Detected exact unmitigated Unfinished High at 360300`);
+const clsThresh = computeClusterSearchThreshold(10, 500, 500);
+assert(clsThresh >= 120, `Cluster Search adaptive threshold scales cleanly: ${clsThresh}`);
+
+// ---------------------------------------------------------------------------
+// TEST 13: 3-Tier Account Entitlements Matrix (PILOT vs PRO vs QUANT)
+// ---------------------------------------------------------------------------
+console.log('\n--- TEST 13: 3-Tier Account Privileges & Entitlements ---');
+assert(normalizeAccountTier('STANDARD PILOT') === 'STANDARD PILOT', 'Normalizes STANDARD PILOT');
+assert(normalizeAccountTier('INSTITUTIONAL PRO') === 'INSTITUTIONAL PRO', 'Normalizes INSTITUTIONAL PRO');
+assert(normalizeAccountTier('QUANT DESK') === 'QUANT DESK', 'Normalizes QUANT DESK');
+assert(!hasFeatureAccess('STANDARD PILOT', 'options_gex'), 'PILOT locks Gold/Crypto Options GEX');
+assert(!hasFeatureAccess('STANDARD PILOT', 'fixed_range_vp'), 'PILOT locks Fixed Range VP');
+assert(hasFeatureAccess('INSTITUTIONAL PRO', 'options_gex'), 'PRO unlocks Gold/Crypto Options GEX');
+assert(hasFeatureAccess('INSTITUTIONAL PRO', 'fixed_range_vp'), 'PRO unlocks Fixed Range VP');
+assert(hasFeatureAccess('INSTITUTIONAL PRO', 'tpo_profile'), 'PRO unlocks TPO Market Profile');
+assert(!hasFeatureAccess('INSTITUTIONAL PRO', 'backtester'), 'PRO locks Quant Strategy Backtester');
+assert(hasFeatureAccess('QUANT DESK', 'backtester'), 'QUANT unlocks Strategy Backtester');
+assert(hasFeatureAccess('QUANT DESK', 'mbo_l3'), 'QUANT unlocks MBO L3 Suite');
+assert(getTierBadgeMeta('QUANT DESK').shortBadge === 'QUANT', 'QUANT badge meta resolves');
+
+// ---------------------------------------------------------------------------
+// TEST 14: Real Non-Time Order Flow Bars (Volume / Tick / Range) & Safe Synthetic AST
+// ---------------------------------------------------------------------------
+console.log('\n--- TEST 14: Non-Time Bars (Range / Volume / Tick) & Synthetic Formula AST ---');
+assert(formatCustomFrameBadge({ category: 'volume', value: 500 }) === '500V', 'Formats 500V badge');
+assert(formatCustomFrameBadge({ category: 'tick', value: 250 }) === '250T', 'Formats 250T badge');
+assert(formatCustomFrameBadge({ category: 'range', value: 10 }) === '10R', 'Formats 10R badge');
+
+const realM1Sample = [
+  {
+    bar_start_us: 1_700_000_000_000_000,
+    timeframe_us: 60_000_000,
+    open_ticks: 362000,
+    high_ticks: 362250,
+    low_ticks: 361950,
+    close_ticks: 362200,
+    buy_units: 360,
+    sell_units: 240,
+    unknown_units: 0,
+    total_units: 600,
+    delta_units: 120,
+    trade_count: 120,
+    poc_ticks: 362100,
+    value_area: null,
+    footprint: [
+      { price_ticks: 361950, buy_units: 40, sell_units: 80, unknown_units: 0, total_units: 120, delta_units: -40, trade_count: 24 },
+      { price_ticks: 362100, buy_units: 180, sell_units: 100, unknown_units: 0, total_units: 280, delta_units: 80, trade_count: 56 },
+      { price_ticks: 362250, buy_units: 140, sell_units: 60, unknown_units: 0, total_units: 200, delta_units: 80, trade_count: 40 },
+    ],
+    finality: 'Closed',
+    completeness: 'Complete',
+  },
+  {
+    bar_start_us: 1_700_000_060_000_000,
+    timeframe_us: 60_000_000,
+    open_ticks: 362200,
+    high_ticks: 362500,
+    low_ticks: 362150,
+    close_ticks: 362450,
+    buy_units: 420,
+    sell_units: 180,
+    unknown_units: 0,
+    total_units: 600,
+    delta_units: 240,
+    trade_count: 150,
+    poc_ticks: 362350,
+    value_area: null,
+    footprint: [
+      { price_ticks: 362150, buy_units: 60, sell_units: 90, unknown_units: 0, total_units: 150, delta_units: -30, trade_count: 35 },
+      { price_ticks: 362350, buy_units: 210, sell_units: 50, unknown_units: 0, total_units: 260, delta_units: 160, trade_count: 65 },
+      { price_ticks: 362500, buy_units: 150, sell_units: 40, unknown_units: 0, total_units: 190, delta_units: 110, trade_count: 50 },
+    ],
+    finality: 'Closed',
+    completeness: 'Complete',
+  },
+];
+
+// 14a. Volume Bars: 500V exact volume & delta conservation
+const volBars = buildNonTimeBarsFromRealData(realM1Sample, { category: 'volume', value: 500 }, 'MT5:CFD:XAUUSD');
+const volTotalIn = realM1Sample.reduce((s, b) => s + b.total_units, 0);
+const volTotalOut = volBars.reduce((s, b) => s + b.total_units, 0);
+const volDeltaIn = realM1Sample.reduce((s, b) => s + b.delta_units, 0);
+const volDeltaOut = volBars.reduce((s, b) => s + b.delta_units, 0);
+assert(volBars.length === 3, `500V splits 1200 units into 2 closed (500+500) + 1 forming (200) bar (got ${volBars.length})`);
+assert(volBars[0].total_units === 500 && volBars[1].total_units === 500 && volBars[2].total_units === 200, 'Exact 500V threshold splits');
+assert(volTotalOut === volTotalIn && volDeltaOut === volDeltaIn, `Volume Bar strict volume (${volTotalOut}) & delta (${volDeltaOut}) conservation`);
+
+// 14b. Tick Bars: 100T exact trade_count threshold & monotonic timestamps (>=1s spacing)
+const tickBars = buildNonTimeBarsFromRealData(realM1Sample, { category: 'tick', value: 100 }, 'MT5:CFD:XAUUSD');
+assert(tickBars.length === 3 && tickBars[0].trade_count === 100 && tickBars[1].trade_count === 100 && tickBars[2].trade_count === 70, '100T exact tick count splits (100, 100, 70)');
+assert(tickBars.every((b, idx) => idx === 0 || b.bar_start_us >= tickBars[idx - 1].bar_start_us + 1_000_000), 'Non-time bars maintain >= 1s monotonic bar_start_us');
+
+// 14c. Range Bars: 15R on XAUUSD (1 pip = 10 ticks -> maxSpanTicks = 150 ticks = $1.50)
+const rangeBars = buildNonTimeBarsFromRealData(realM1Sample, { category: 'range', value: 15 }, 'MT5:CFD:XAUUSD');
+assert(rangeBars.length >= 3, `15R builds multiple range bars across $5.50 excursion (got ${rangeBars.length})`);
+assert(rangeBars.every((b) => b.high_ticks - b.low_ticks <= 150), 'Every Range Bar strictly satisfies high_ticks - low_ticks <= maxSpanTicks (150)');
+const rngVolOut = rangeBars.reduce((s, b) => s + b.total_units, 0);
+assert(rngVolOut === volTotalIn, `Range Bar strict total volume conservation (${rngVolOut} === ${volTotalIn})`);
+
+// 14d. Live Tick-by-Tick Rollover (`appendLiveTradeToNonTimeSeries`)
+let liveClosed = volBars.slice(0, -1);
+let liveActive = volBars[volBars.length - 1]; // currently 200 units
+const rolloverRes = appendLiveTradeToNonTimeSeries(
+  liveClosed,
+  liveActive,
+  {
+    exchange_ts_us: 1_700_000_125_000_000,
+    price_ticks: 362520,
+    quantity_units: 300,
+    aggressor: 'Buy',
+  },
+  { category: 'volume', value: 500 },
+  'MT5:CFD:XAUUSD'
+);
+assert(
+  rolloverRes.closedBars.length === 3 && rolloverRes.closedBars[2].total_units === 500 && rolloverRes.activeBar.total_units === 0,
+  'Live trade hitting 500V closes active bar and opens fresh forming bar'
+);
+
+// 14e. Safe Recursive-Descent Synthetic Formula Parser & Multi-Leg Real Evaluator (Ratio + Negative Basis Spread)
+const ratioSpec = parseSyntheticFormula('SYNTH:XAUEUR_TEST', 'XAUUSD / EURUSD');
+registerSyntheticInstrument(ratioSpec);
+assert(
+  ratioSpec.legInstrumentIds.length === 2 &&
+    ratioSpec.legInstrumentIds.includes('MT5:CFD:XAUUSD') &&
+    ratioSpec.legInstrumentIds.includes('MT5:FOREX:EURUSD'),
+  'AST resolves XAUUSD and EURUSD legs cleanly without eval()'
+);
+const evalVal = evaluateFormulaAst(ratioSpec.ast, { 'MT5:CFD:XAUUSD': 3630.0, 'MT5:FOREX:EURUSD': 1.1 });
+assert(Math.abs(evalVal - 3300.0) < 1e-6, `Evaluates 3630 / 1.1 === 3300.0 (got ${evalVal})`);
+
+const basisSpec = parseSyntheticFormula('SYNTH:GOLD_BASIS_TEST', 'XAUUSD - XAUUSDT');
+registerSyntheticInstrument(basisSpec);
+const basisBars = buildSyntheticBarsFromRealLegs(
+  basisSpec,
+  {
+    'MT5:CFD:XAUUSD': [
+      {
+        ...realM1Sample[0],
+        open_ticks: 362000, // $3,620.00 (scale 100)
+        high_ticks: 362200,
+        low_ticks: 361900,
+        close_ticks: 362100, // $3,621.00
+      },
+    ],
+    'BYBIT:LINEAR_PERP:XAUUSDT:PERP': [
+      {
+        ...realM1Sample[0],
+        open_ticks: 363500, // $3,635.00 (scale 100)
+        high_ticks: 363700,
+        low_ticks: 363400,
+        close_ticks: 363600, // $3,636.00
+      },
+    ],
+  },
+  60_000_000
+);
+assert(
+  basisBars.length === 1 && basisBars[0].close_ticks < 0,
+  `Multi-leg basis spread XAUUSD - XAUUSDT preserves negative spread ticks (${basisBars[0]?.close_ticks})`
+);
+
+// ---------------------------------------------------------------------------
+// TEST 15: CME Globex Level-3 MBO (`GLBX.MDP3`) FIFO Queue, Iceberg & Stop-Sweep
+// ---------------------------------------------------------------------------
+console.log('\n--- TEST 15: CME Globex Level-3 MBO (GLBX.MDP3) FIFO Queue & Stop-Sweep ---');
+const sampleGlbxNdjson = [
+  '{"hd":{"ts_event":"1732450000000000000","rtype":160},"order_id":"5001","action":"A","side":"B","price":"5980000000000","size":12,"sequence":1}',
+  '{"hd":{"ts_event":"1732450000000500000","rtype":160},"order_id":"5002","action":"A","side":"B","price":"5980000000000","size":30,"sequence":2}',
+  '{"hd":{"ts_event":"1732450000001000000","rtype":160},"order_id":"5001","action":"M","side":"B","price":"5980000000000","size":18,"sequence":3}',
+  '{"hd":{"ts_event":"1732450000001500000","rtype":160},"order_id":"6001","action":"A","side":"A","price":"5980250000000","size":10,"sequence":4}',
+  '{"hd":{"ts_event":"1732450000002000000","rtype":160},"order_id":"0","action":"T","side":"B","price":"5980250000000","size":16,"sequence":5}',
+  '{"hd":{"ts_event":"1732450000002000000","rtype":160},"order_id":"6001","action":"F","side":"A","price":"5980250000000","size":16,"sequence":6}',
+  '{"hd":{"ts_event":"1732450000002500000","rtype":160},"order_id":"0","action":"T","side":"B","price":"5980500000000","size":8,"sequence":7}',
+  '{"hd":{"ts_event":"1732450000003000000","rtype":160},"order_id":"0","action":"T","side":"B","price":"5980750000000","size":9,"sequence":8}',
+].join('\n');
+
+const cmeParsed = parseRealDatabentoMboCaptureText(sampleGlbxNdjson, 'CME:FUT:ES');
+assert(cmeParsed.ok && cmeParsed.bestBidTicks === 598000, 'Parses CME ES 1e-9 fixed-point price 5980.00 -> 598000 ticks');
+assert(
+  cmeParsed.bids[0].totalContracts === 48 &&
+    cmeParsed.bids[0].fifoQueue[0].orderIdTail === '5002' &&
+    cmeParsed.bids[0].fifoQueue[1].orderIdTail === '5001',
+  'Enforces CME Globex FIFO queue priority loss on order size increase (#5002 ahead of #5001)'
+);
+assert(
+  cmeParsed.icebergs.length === 1 && cmeParsed.icebergs[0].hiddenVolumeUnits === 6,
+  'Detects native CME Order-ID Iceberg replenishment (16 executed > 10 displayed => 6 hidden)'
+);
+assert(
+  cmeParsed.stopSweeps.length === 1 && cmeParsed.stopSweeps[0].levelsSwept === 3,
+  'Detects CME matching-engine 3-level Stop-Sweep burst within <= 5ms window'
+);
 
 console.log(`\n======================================================`);
 console.log(`🎉 AUDIT COMPLETE: ${passedTests}/${totalTests} MATHEMATICAL INVARIANTS VERIFIED!`);

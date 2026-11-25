@@ -1,5 +1,11 @@
 import React from 'react';
 import { ChartSnapshotDTO } from '../types';
+import { getTierBadgeMeta } from '../utils/entitlements';
+import {
+  ActiveFrameConfig,
+  formatCustomFrameBadge,
+  listRegisteredSynthetics,
+} from '../utils/customFrameAndSyntheticEngine';
 
 interface ToolbarProps {
   snapshot: ChartSnapshotDTO;
@@ -31,12 +37,22 @@ interface ToolbarProps {
   multiChartLayout?: '1x1' | '2v' | '2h' | '3L' | '2x2';
   onMultiChartLayoutChange?: (layout: '1x1' | '2v' | '2h' | '3L' | '2x2') => void;
   onOpenMt5Modal?: () => void;
+  onOpenCmeModal?: () => void;
+  cmeConnected?: boolean;
   onOpenIndicators?: () => void;
   onOpenOptionsBoard?: () => void;
   onOpenScriptEditor?: () => void;
   onOpenInstrumentStudio?: () => void;
   onOpenAiConnect?: () => void;
   onOpenRiskManager?: () => void;
+  onOpenDataManager?: () => void;
+  localDataLabel?: string;
+  hasLocalData?: boolean;
+  authUserEmail?: string;
+  authUserTier?: string;
+  activeFrame?: ActiveFrameConfig;
+  onOpenPrivilegeModal?: () => void;
+  onLogout?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -69,13 +85,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   multiChartLayout = '1x1',
   onMultiChartLayoutChange,
   onOpenMt5Modal,
+  onOpenCmeModal,
+  cmeConnected = false,
   onOpenIndicators,
   onOpenOptionsBoard,
   onOpenScriptEditor,
   onOpenInstrumentStudio,
   onOpenAiConnect,
   onOpenRiskManager,
+  onOpenDataManager,
+  localDataLabel = 'Data',
+  hasLocalData = false,
+  authUserEmail,
+  authUserTier,
+  activeFrame,
+  onOpenPrivilegeModal,
+  onLogout,
 }) => {
+  const tierMeta = getTierBadgeMeta(authUserTier);
+  const customSynthetics = listRegisteredSynthetics();
+  const isNonTimeFrame = Boolean(activeFrame && activeFrame.category !== 'time');
   const isReplayMode = !!snapshot.playback?.is_replay_mode;
   const isPlaying = snapshot.playback?.state === 'Playing';
   const speed = snapshot.playback?.speed_multiplier || 1;
@@ -93,7 +122,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   ];
 
   const iconBtnStyle: React.CSSProperties = {
-    width: '28px',
+    width: '24px',
     height: '26px',
     background: 'transparent',
     color: '#94A3B8',
@@ -110,13 +139,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     background: '#252830',
     color: '#E2E8F0',
     border: '1px solid #323642',
-    padding: '3px 10px',
+    padding: '2px 8px',
     borderRadius: '4px',
-    fontSize: '11.5px',
+    fontSize: '11px',
     fontWeight: 600,
     cursor: 'pointer',
     outline: 'none',
     height: '26px',
+    whiteSpace: 'nowrap',
+    lineHeight: '20px',
   };
 
   return (
@@ -129,10 +160,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0 10px',
-        gap: '8px',
+        padding: '0 8px',
+        gap: '5px',
         userSelect: 'none',
         zIndex: 20,
+        overflowX: 'auto',
+        scrollbarWidth: 'none',
         fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
       }}
     >
@@ -158,7 +191,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             background: '#1B1F2A',
             border: '1px solid #2C3345',
             fontSize: '11px',
-            maxWidth: '170px',
+            maxWidth: '164px',
+            padding: '2px 6px',
           }}
           title="Chọn Cặp Giao Dịch: MT5 Forex / Gold / Indices hoặc Crypto Perpetual"
         >
@@ -175,6 +209,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <option value="MT5:CRYPTO:BTCUSD">BTCUSD · Bitcoin / USD (MT5)</option>
             <option value="MT5:CRYPTO:ETHUSD">ETHUSD · Ethereum / USD (MT5)</option>
           </optgroup>
+          <optgroup label="US FUTURES — CME GLOBEX (Level-3 MBO)">
+            <option value="CME:FUT:ES">ES · E-mini S&amp;P 500 (CME L3)</option>
+            <option value="CME:FUT:NQ">NQ · E-mini Nasdaq-100 (CME L3)</option>
+            <option value="CME:FUT:GC">GC · COMEX Gold Futures (CME L3)</option>
+            <option value="CME:FUT:CL">CL · WTI Crude Oil (CME L3)</option>
+            <option value="CME:FUT:6E">6E · Euro FX Futures (CME L3)</option>
+          </optgroup>
           <optgroup label="CRYPTO FUTURES (Bybit / Binance)">
             <option value="BYBIT:LINEAR_PERP:BTCUSDT:PERP">BTCUSDT-PERP (Bybit)</option>
             <option value="BYBIT:LINEAR_PERP:ETHUSDT:PERP">ETHUSDT-PERP (Bybit)</option>
@@ -185,6 +226,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <option value="AGGREGATED:MULTI_PERP:BTCUSDT:COMBINED">BTCUSDT-AGG (Hợp Nhất)</option>
             <option value="AGGREGATED:MULTI_PERP:XAUUSDT:COMBINED">XAUUSDT-AGG (Hợp Nhất)</option>
           </optgroup>
+          {customSynthetics.length > 0 && (
+            <optgroup label="SYNTHETIC SPREADS (Cặp Lai Định Lượng)">
+              {customSynthetics.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.displayName} ({s.formula})
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
 
         {/* 1-Click MT5 Connect Button */}
@@ -212,6 +262,35 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         >
           <span style={{ color: '#089981', fontSize: '9px' }}>●</span>
           <span>MT5</span>
+        </button>
+
+        {/* 1-Click CME Globex Level-3 MBO Connector Button */}
+        <button
+          type="button"
+          data-testid="toolbar-cme-mbo-btn"
+          onClick={onOpenCmeModal}
+          style={{
+            background: snapshot.instrument_id.startsWith('CME:')
+              ? 'rgba(16, 185, 129, 0.16)'
+              : '#1A1E27',
+            color: snapshot.instrument_id.startsWith('CME:') ? '#34D399' : '#94A3B8',
+            border: snapshot.instrument_id.startsWith('CME:')
+              ? '1px solid #10B981'
+              : '1px solid #282E3E',
+            borderRadius: '4px',
+            padding: '0 8px',
+            height: '26px',
+            fontSize: '11px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+          }}
+          title="Đầu nối Hợp đồng tương lai Mỹ CME Globex Level-3 MBO (Databento GLBX.MDP3 / dxFeed / Rithmic)"
+        >
+          <span style={{ color: cmeConnected ? '#10B981' : '#F59E0B', fontSize: '9px' }}>●</span>
+          <span>CME L3</span>
         </button>
 
         {/* Vertical Separator */}
@@ -253,29 +332,75 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </button>
         </div>
 
-        {/* Timeframe Quick Switcher */}
-        <div style={{ display: 'flex', background: '#181B23', border: '1px solid #282C38', borderRadius: '4px', padding: '1px' }}>
-          {timeframes.map((tf) => {
-            const isSelected = snapshot.timeframe_us === tf.value;
-            return (
-              <button
-                key={tf.value}
-                onClick={() => onTimeframeChange?.(tf.value)}
-                style={{
-                  background: isSelected ? '#2A303F' : 'transparent',
-                  color: isSelected ? '#38BDF8' : '#78889B',
-                  border: 'none',
-                  borderRadius: '3px',
-                  padding: '2px 6px',
-                  fontSize: '10.5px',
-                  fontWeight: isSelected ? 700 : 500,
-                  cursor: 'pointer',
-                }}
-              >
+        {/* Timeframe Quick Switcher (Core 4 pills + dropdown + Non-Time Range/Volume/Tick indicator) */}
+        <div style={{ display: 'flex', alignItems: 'center', background: '#181B23', border: '1px solid #282C38', borderRadius: '4px', padding: '1px', gap: '1px' }}>
+          {timeframes
+            .filter((tf) => ['1m', '5m', '15m', '1h'].includes(tf.short))
+            .map((tf) => {
+              const isSelected = !isNonTimeFrame && snapshot.timeframe_us === tf.value;
+              return (
+                <button
+                  key={tf.value}
+                  onClick={() => onTimeframeChange?.(tf.value)}
+                  style={{
+                    background: isSelected ? '#2A303F' : 'transparent',
+                    color: isSelected ? '#38BDF8' : '#78889B',
+                    border: 'none',
+                    borderRadius: '3px',
+                    padding: '2px 5px',
+                    fontSize: '10.5px',
+                    fontWeight: isSelected ? 700 : 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {tf.short}
+                </button>
+              );
+            })}
+          {isNonTimeFrame && activeFrame && (
+            <button
+              type="button"
+              data-testid="toolbar-active-custom-frame-pill"
+              onClick={onOpenInstrumentStudio}
+              style={{
+                background: 'rgba(245, 158, 11, 0.2)',
+                color: '#FBBF24',
+                border: '1px solid rgba(245, 158, 11, 0.55)',
+                borderRadius: '3px',
+                padding: '1px 6px',
+                margin: '0 2px',
+                fontSize: '10px',
+                fontWeight: 800,
+                fontFamily: "'JetBrains Mono', monospace",
+                cursor: 'pointer',
+              }}
+              title="Đang chạy Khung Nến Phi Thời Gian (Range / Volume / Tick) — Bấm để đổi thông số"
+            >
+              ● {formatCustomFrameBadge(activeFrame)}
+            </button>
+          )}
+          <select
+            value={snapshot.timeframe_us}
+            onChange={(e) => onTimeframeChange?.(Number(e.target.value))}
+            style={{
+              background: '#1E2330',
+              color: isNonTimeFrame ? '#64748B' : '#CBD5E1',
+              border: 'none',
+              borderRadius: '3px',
+              padding: '2px 3px',
+              fontSize: '10px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              outline: 'none',
+            }}
+            title="Chọn toàn bộ khung thời gian (1m - 1d) hoặc bấm Studio để chọn Range/Volume/Tick Bars"
+          >
+            {timeframes.map((tf) => (
+              <option key={tf.value} value={tf.value}>
                 {tf.short}
-              </button>
-            );
-          })}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Load More History (+) */}
@@ -296,7 +421,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
             }}
-            title="Nạp thêm 200 nến lịch sử từ sàn"
+            title="Nạp thêm nến lịch sử theo khung hiện tại"
           >
             +
           </button>
@@ -309,21 +434,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             const val = e.target.value;
             onTickAggregationChange?.(val === 'auto' ? 'auto' : parseInt(val, 10));
           }}
-          style={{ ...centerSelectStyle, background: '#181B23', border: '1px solid #282C38', fontSize: '10.5px', padding: '2px 6px' }}
+          style={{ ...centerSelectStyle, background: '#181B23', border: '1px solid #282C38', fontSize: '10px', padding: '2px 4px' }}
           title="Độ sâu Lịch sử & Gom cụm Bước giá"
         >
-          <option value="auto">10D - Auto BT</option>
-          <option value="1">10D - 1T</option>
-          <option value="2">10D - 2T</option>
-          <option value="5">10D - 5T</option>
-          <option value="10">10D - 10T</option>
+          <option value="auto">Auto T</option>
+          <option value="1">1T</option>
+          <option value="2">2T</option>
+          <option value="5">5T</option>
+          <option value="10">10T</option>
         </select>
       </div>
 
       {/* =====================================================================
-          GROUP 2 (CENTER): Indicators (Ctrl+I), Templates & Multi-Chart
+          GROUP 2 (CENTER): Indicators (Ctrl+I), Institutional Tools, Templates & Multi-Chart
           ===================================================================== */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
         {/* Indicators Manager Button (ATAS Ctrl+I Standard) */}
         <button
           onClick={onOpenIndicators}
@@ -332,7 +457,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             border: '1px solid #2E384D',
             borderRadius: '4px',
             color: '#38BDF8',
-            padding: '2px 9px',
+            padding: '2px 8px',
             fontSize: '11px',
             fontWeight: 700,
             cursor: 'pointer',
@@ -341,98 +466,42 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             gap: '4px',
             height: '26px',
           }}
-          title="Quản lý Chỉ báo Order Flow & Định lượng (Ctrl + I)"
+          title="Quản lý Chỉ báo Order Flow & Định lượng (Phím tắt: Ctrl + I)"
         >
-          <span>Chỉ báo (Ctrl+I)</span>
+          <span>Chỉ báo</span>
         </button>
 
-        {/* ATAS Options Board */}
-        <button
-          onClick={onOpenOptionsBoard}
-          style={{
-            background: '#181B23',
-            border: '1px solid #282C38',
-            borderRadius: '4px',
-            color: '#CBD5E1',
-            padding: '2px 8px',
-            fontSize: '11px',
-            fontWeight: 700,
-            cursor: 'pointer',
-            height: '26px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '3px',
+        {/* Institutional Suite Menu (Options, Studio, Script, Risk, Backtest) */}
+        <select
+          value=""
+          onChange={(e) => {
+            const act = e.target.value;
+            if (act === 'options') onOpenOptionsBoard?.();
+            else if (act === 'studio') onOpenInstrumentStudio?.();
+            else if (act === 'script') onOpenScriptEditor?.();
+            else if (act === 'risk') onOpenRiskManager?.();
+            else if (act === 'backtest') onOpenBacktest?.();
           }}
-          title="Bảng Quyền Chọn Deribit & Phân Tích Chiến Lược (Options Board & Suite)"
+          style={{ ...centerSelectStyle, background: '#181B23', border: '1px solid #282C38', color: '#CBD5E1', fontSize: '11px', padding: '2px 6px' }}
+          title="Bộ công cụ định chế ATAS: Options Board, Studio, Script Editor, Risk Manager, Backtest"
         >
-          <span>Options</span>
-        </button>
-
-        {/* ATAS Instrument Studio */}
-        <button
-          onClick={onOpenInstrumentStudio}
-          style={{
-            background: '#181B23',
-            border: '1px solid #282C38',
-            borderRadius: '4px',
-            color: '#CBD5E1',
-            padding: '2px 8px',
-            fontSize: '11px',
-            fontWeight: 700,
-            cursor: 'pointer',
-            height: '26px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '3px',
-          }}
-          title="Tạo Cặp Lai & Khung Nến Tùy Biến (Instrument Studio & Custom Frames)"
-        >
-          <span>Studio</span>
-        </button>
-
-        {/* ATAS Script Editor */}
-        <button
-          onClick={onOpenScriptEditor}
-          style={{
-            background: '#181B23',
-            border: '1px solid #282C38',
-            borderRadius: '4px',
-            color: '#CBD5E1',
-            padding: '2px 8px',
-            fontSize: '11px',
-            fontWeight: 700,
-            cursor: 'pointer',
-            height: '26px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '3px',
-          }}
-          title="Soạn Thảo Kịch Bản Chiến Lược Trực Tiếp Trên Chart (Script Editor NEW)"
-        >
-          <span>&lt;/&gt; Script</span>
-        </button>
-
-        {/* ATAS Risk Manager */}
-        <button
-          onClick={onOpenRiskManager}
-          style={{
-            background: '#181B23',
-            border: '1px solid #282C38',
-            borderRadius: '4px',
-            color: '#CBD5E1',
-            padding: '2px 8px',
-            fontSize: '11px',
-            fontWeight: 700,
-            cursor: 'pointer',
-            height: '26px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '3px',
-          }}
-          title="Bộ Điều Hành Quản Trị Rủi Ro & Khóa Lệnh (Risk Manager NEW)"
-        >
-          <span>Risk</span>
-        </button>
+          <option value="" disabled>Công cụ ▾</option>
+          <option value="options">
+            Options Board (CBOE Gold · Deribit){tierMeta.shortBadge === 'PILOT' ? ' [PRO]' : ''}
+          </option>
+          <option value="risk">
+            Risk Manager (Khóa lỗ){tierMeta.shortBadge === 'PILOT' ? ' [PRO]' : ''}
+          </option>
+          <option value="backtest">
+            Backtest Chiến Lược ($){tierMeta.shortBadge !== 'QUANT' ? ' [QUANT]' : ''}
+          </option>
+          <option value="studio">
+            Instrument Studio{tierMeta.shortBadge !== 'QUANT' ? ' [QUANT]' : ''}
+          </option>
+          <option value="script">
+            Script Editor (&lt;/&gt;){tierMeta.shortBadge !== 'QUANT' ? ' [QUANT]' : ''}
+          </option>
+        </select>
 
         {/* Templates Selector */}
         <select
@@ -443,10 +512,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             }
           }}
           defaultValue=""
-          style={{ ...centerSelectStyle, background: '#181B23', border: '1px solid #282C38', color: '#CBD5E1', fontSize: '11px', padding: '2px 8px' }}
+          style={{ ...centerSelectStyle, background: '#181B23', border: '1px solid #282C38', color: '#CBD5E1', fontSize: '11px', padding: '2px 6px' }}
           title="Mẫu Thiết Lập Biểu Đồ Chuẩn (Templates)"
         >
-          <option value="" disabled>Mẫu Biểu Đồ ▾</option>
+          <option value="" disabled>Mẫu ▾</option>
           <option value="atas_standard">ATAS Standard (Clusters + VP + HTF)</option>
           <option value="scalper_flow">Scalper Flow (Imbalances + Abs)</option>
           <option value="macro_institutional">Macro Institutional (Levels + VP)</option>
@@ -483,8 +552,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   color: isActive ? '#090B10' : '#8E9BAE',
                   border: 'none',
                   borderRadius: '3px',
-                  padding: '2px 6px',
-                  fontSize: '10.5px',
+                  padding: '2px 5px',
+                  fontSize: '10px',
                   fontWeight: isActive ? 800 : 600,
                   cursor: 'pointer',
                   fontFamily: '"JetBrains Mono", monospace',
@@ -498,9 +567,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </div>
 
       {/* =====================================================================
-          GROUP 3 (RIGHT): ATAS [T] Chart Trader, [DOM], Replay & Controls
+          GROUP 3 (RIGHT): ATAS [T] Chart Trader, [DOM], Replay, Data Pack & Account
           ===================================================================== */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
         {/* ATAS [T] Chart Trader Toggle Button */}
         <button
           onClick={() => onToggleRightTab?.('trading')}
@@ -509,19 +578,18 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             color: activeRightTab === 'trading' ? '#089981' : '#CBD5E1',
             border: activeRightTab === 'trading' ? '1px solid #089981' : '1px solid #282C38',
             borderRadius: '4px',
-            padding: '2px 8px',
+            padding: '2px 7px',
             height: '26px',
-            fontSize: '11px',
+            fontSize: '10.5px',
             fontWeight: 800,
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
+            gap: '3px',
           }}
           title="Bật/Tắt Bảng Đặt Lệnh Nhanh [T] (ATAS Chart Trader)"
         >
-          <span style={{ color: activeRightTab === 'trading' ? '#089981' : '#94A3B8' }}>[T]</span>
-          <span>Trader</span>
+          <span>[T]</span>
         </button>
 
         {/* [DOM] Ladder Toggle Button */}
@@ -532,9 +600,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             color: activeRightTab === 'dom_tape' || activeRightTab === 'dom' ? '#38BDF8' : '#CBD5E1',
             border: activeRightTab === 'dom_tape' || activeRightTab === 'dom' ? '1px solid #38BDF8' : '1px solid #282C38',
             borderRadius: '4px',
-            padding: '2px 8px',
+            padding: '2px 6px',
             height: '26px',
-            fontSize: '11px',
+            fontSize: '10.5px',
             fontWeight: 700,
             cursor: 'pointer',
           }}
@@ -550,16 +618,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             background: isReplayMode ? '#F59E0B' : '#181B23',
             color: isReplayMode ? '#0B0D12' : '#94A3B8',
             border: `1px solid ${isReplayMode ? '#F59E0B' : '#282C38'}`,
-            padding: '2px 8px',
+            padding: '2px 7px',
             borderRadius: '4px',
-            fontSize: '11px',
+            fontSize: '10.5px',
             fontWeight: 700,
             cursor: 'pointer',
             height: '26px',
           }}
           title="Bật/Tắt Chế độ Tua Lại Lịch Sử (Market Replay)"
         >
-          {isReplayMode ? '⏹ Exit' : '⏱ Replay'}
+          {isReplayMode ? '⏹ Exit' : 'Replay'}
         </button>
 
         {isReplayMode && (
@@ -597,14 +665,32 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </div>
         )}
 
-        {/* Backtest Strategy Icon */}
-        <button
-          onClick={onOpenBacktest}
-          style={{ ...iconBtnStyle, color: '#089981', fontWeight: 700 }}
-          title="Kiểm thử Chiến lược Order Flow (Backtest $)"
-        >
-          $
-        </button>
+        {/* System & Runtime Compatibility Diagnostics Button */}
+        {onOpenDataManager && (
+          <button
+            onClick={onOpenDataManager}
+            data-testid="toolbar-system-bootstrap-btn"
+            style={{
+              background: hasLocalData ? 'rgba(8, 153, 129, 0.14)' : 'rgba(245, 158, 11, 0.14)',
+              color: hasLocalData ? '#10B981' : '#F59E0B',
+              border: hasLocalData ? '1px solid rgba(8, 153, 129, 0.5)' : '1px solid rgba(245, 158, 11, 0.5)',
+              borderRadius: '4px',
+              padding: '2px 8px',
+              height: '26px',
+              fontSize: '10.5px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+            title="Kiểm tra & Cài đặt tương thích hệ thống (System Runtime Bootstrapper)"
+          >
+            <span style={{ fontSize: '8px' }}>●</span>
+            <span>{localDataLabel}</span>
+          </button>
+        )}
 
         {/* Settings Gear */}
         <button
@@ -615,17 +701,88 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           ⚙
         </button>
 
-        {/* Sound Toggle */}
+        {/* Sound Toggle (Crisp Typographic Pill — Zero Cartoon Emoji) */}
         <button
           onClick={onToggleSound}
           style={{
             ...iconBtnStyle,
-            color: soundEnabled ? '#089981' : '#64748B',
+            width: 'auto',
+            padding: '0 6px',
+            fontSize: '9.5px',
+            fontWeight: 700,
+            fontFamily: "'JetBrains Mono', monospace",
+            color: soundEnabled ? '#10B981' : '#64748B',
           }}
           title={soundEnabled ? 'Âm thanh cảnh báo: BẬT' : 'Âm thanh cảnh báo: TẮT'}
         >
-          {soundEnabled ? '🔊' : '🔇'}
+          {soundEnabled ? 'SND' : 'MUTE'}
         </button>
+
+        {/* Authenticated User Pill + Tier Privilege Badge + Sign Out */}
+        {authUserEmail && onLogout && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              background: '#171C27',
+              border: '1px solid #272F40',
+              borderRadius: '4px',
+              padding: '0 6px 0 6px',
+              height: '26px',
+            }}
+          >
+            <button
+              onClick={() => onOpenPrivilegeModal?.()}
+              data-testid="toolbar-tier-badge"
+              style={{
+                background: tierMeta.bgColor,
+                color: tierMeta.textColor,
+                border: `1px solid ${tierMeta.borderColor}`,
+                borderRadius: '3px',
+                padding: '1px 5px',
+                fontSize: '9px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
+              title={`Hạng tài khoản: ${tierMeta.displayName} — Click để xem Đặc Quyền & Nâng Cấp Gói`}
+            >
+              {tierMeta.shortBadge}
+            </button>
+            <span
+              style={{
+                fontSize: '10px',
+                color: '#CBD5E1',
+                fontWeight: 600,
+                maxWidth: '58px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={`${authUserEmail} (${tierMeta.displayName})`}
+            >
+              {authUserEmail.split('@')[0]}
+            </span>
+            <button
+              onClick={onLogout}
+              data-testid="toolbar-logout-btn"
+              style={{
+                background: '#242B3B',
+                border: 'none',
+                borderRadius: '3px',
+                color: '#F87171',
+                padding: '2px 6px',
+                fontSize: '10px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+              title="Đăng xuất khỏi VluxChart Terminal"
+            >
+              Thoát
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

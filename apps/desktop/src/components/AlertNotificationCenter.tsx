@@ -32,11 +32,11 @@ export const AlertNotificationCenter: React.FC<AlertCenterProps> = ({ alerts, on
       case 'Absorption':
         return '#AB47BC'; // Purple
       case 'Exhaustion':
-        return '#FFD54F'; // Yellow
+        return '#F59E0B'; // Amber
       case 'Divergence':
-        return '#00B0FF'; // Cyan
+        return '#38BDF8'; // Steel-Cyan
       case 'Iceberg':
-        return '#80D8FF'; // Ice Blue
+        return '#2DD4BF'; // Teal
       default:
         return '#8E9AA8';
     }
@@ -48,9 +48,9 @@ export const AlertNotificationCenter: React.FC<AlertCenterProps> = ({ alerts, on
       <button
         onClick={() => setIsOpen(!isOpen)}
         style={{
-          background: alerts.length > 0 ? '#263238' : '#1A1D24',
-          color: alerts.length > 0 ? '#00E676' : '#8E9AA8',
-          border: '1px solid #3F4656',
+          background: alerts.length > 0 ? '#1C2632' : '#1A1D24',
+          color: alerts.length > 0 ? '#34D399' : '#8E9AA8',
+          border: '1px solid #2D3648',
           borderRadius: '4px',
           padding: '4px 10px',
           fontSize: '11px',
@@ -62,7 +62,7 @@ export const AlertNotificationCenter: React.FC<AlertCenterProps> = ({ alerts, on
         }}
         title="View Real-Time Order Flow Alerts"
       >
-        <span>🔔 Alerts</span>
+        <span>Alerts</span>
         {alerts.length > 0 && (
           <span
             style={{
@@ -111,7 +111,7 @@ export const AlertNotificationCenter: React.FC<AlertCenterProps> = ({ alerts, on
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '13px', fontWeight: 700, color: '#FFF' }}>
-                🚨 Order Flow Live Alerts
+                Order Flow Live Alerts
               </span>
               <span style={{ fontSize: '11px', color: '#8E9AA8' }}>({filteredAlerts.length})</span>
             </div>

@@ -55,15 +55,36 @@ export const OptionsBoardModal: React.FC<OptionsBoardModalProps> = ({
 
   if (!isOpen) return null;
 
+  const resolvedCurrency = optionsLiveService.resolveOptionsCurrency(instrumentId);
+  const isGoldAsset = resolvedCurrency === 'XAU' || liveChain?.currency === 'XAU';
   const spot = liveChain?.underlyingPrice || (currentPriceTicks ? currentPriceTicks / 100 : 0);
-  const avgIv =
-    liveChain && liveChain.strikes.length > 0
-      ? liveChain.strikes.reduce((acc, s) => acc + s.avg_iv, 0) / liveChain.strikes.length
-      : 55;
+  const avgIv = (() => {
+    if (!liveChain || liveChain.strikes.length === 0) return isGoldAsset ? 18.5 : 55;
+    let weightedSum = 0;
+    let weightTotal = 0;
+    for (const s of liveChain.strikes) {
+      const w = Math.max(1, s.call_oi + s.put_oi);
+      weightedSum += s.avg_iv * w;
+      weightTotal += w;
+    }
+    return weightTotal > 0 ? weightedSum / weightTotal : isGoldAsset ? 18.5 : 55;
+  })();
   const expectedMoveUsd = spot * 0.85 * (avgIv / 100) * Math.sqrt(7 / 365);
 
   const strikes = liveChain?.strikes || [];
   const sortedStrikes = [...strikes].sort((a, b) => b.strike_ticks - a.strike_ticks);
+  const maxAbsGexUsd = sortedStrikes.reduce((m, s) => Math.max(m, Math.abs(s.net_gex_usd)), 1);
+  const formatGexUsd = (gex: number) => {
+    const sign = gex >= 0 ? '+' : '-';
+    const abs = Math.abs(gex);
+    if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+    return `${sign}$${(abs / 1_000).toFixed(0)}K`;
+  };
+  const venueBadgeText = isGoldAsset
+    ? `OPRA / CBOE GOLD OPTIONS (GLD·IAU) · ${liveChain?.totalContractsCount ? `${liveChain.totalContractsCount} HĐ LIVE` : 'RUST NATIVE'}`
+    : resolvedCurrency
+    ? `DERIBIT + MULTI-EXCHANGE L3 LIVE${liveChain?.totalContractsCount ? ` (${liveChain.totalContractsCount} HĐ)` : ''}`
+    : 'OTC FOREX · NO PUBLIC OPTIONS';
 
   return (
     <div
@@ -111,13 +132,13 @@ export const OptionsBoardModal: React.FC<OptionsBoardModalProps> = ({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '12px', fontWeight: 800, color: '#F1F5F9', letterSpacing: '0.4px' }}>
-              OPTIONS BOARD & STRATEGY ANALYZER
+              {isGoldAsset ? 'GOLD OPTIONS BOARD & GEX ANALYZER (XAU/USD)' : 'OPTIONS BOARD & STRATEGY ANALYZER'}
             </span>
             <span
               style={{
-                background: '#1E2330',
-                color: '#38BDF8',
-                border: '1px solid #2D3548',
+                background: isGoldAsset ? 'rgba(245, 158, 11, 0.14)' : '#1E2330',
+                color: isGoldAsset ? '#FBBF24' : '#38BDF8',
+                border: `1px solid ${isGoldAsset ? 'rgba(245, 158, 11, 0.45)' : '#2D3548'}`,
                 fontSize: '9px',
                 fontWeight: 700,
                 padding: '1px 6px',
@@ -125,7 +146,7 @@ export const OptionsBoardModal: React.FC<OptionsBoardModalProps> = ({
                 fontFamily: 'monospace',
               }}
             >
-              DERIBIT L3 LIVE
+              {venueBadgeText}
             </span>
           </div>
 
@@ -167,11 +188,11 @@ export const OptionsBoardModal: React.FC<OptionsBoardModalProps> = ({
           </div>
         </div>
 
-        {/* Institutional Metrics Ribbon (Expected Move, Walls, Max Pain, PCR) */}
+        {/* Institutional Metrics Ribbon (Expected Move, Call/Put Walls, Zero Gamma, Max Pain, PCR) */}
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(6, 1fr)',
+            gridTemplateColumns: 'repeat(7, 1fr)',
             background: '#12151D',
             borderBottom: '1px solid #1E2330',
             padding: '6px 14px',
@@ -181,23 +202,29 @@ export const OptionsBoardModal: React.FC<OptionsBoardModalProps> = ({
           }}
         >
           <div>
-            <div style={{ color: '#64748B', fontSize: '9px' }}>SPOT PRICE</div>
-            <div style={{ color: '#F8FAFC', fontWeight: 800 }}>${Math.round(spot).toLocaleString()}</div>
+            <div style={{ color: '#64748B', fontSize: '9px' }}>{isGoldAsset ? 'XAU SPOT ($/OZ)' : 'SPOT PRICE'}</div>
+            <div style={{ color: '#F8FAFC', fontWeight: 800 }}>${spot.toLocaleString(undefined, { maximumFractionDigits: isGoldAsset ? 2 : 0 })}</div>
           </div>
           <div>
             <div style={{ color: '#64748B', fontSize: '9px' }}>EXPECTED MOVE (7D)</div>
-            <div style={{ color: '#38BDF8', fontWeight: 800 }}>±${Math.round(expectedMoveUsd).toLocaleString()}</div>
+            <div style={{ color: '#38BDF8', fontWeight: 800 }}>±${Math.round(expectedMoveUsd).toLocaleString()} ({avgIv.toFixed(1)}% IV)</div>
           </div>
           <div>
-            <div style={{ color: '#64748B', fontSize: '9px' }}>CALL WALL (RESISTANCE)</div>
+            <div style={{ color: '#64748B', fontSize: '9px' }}>CALL WALL (KHÁNG CỰ)</div>
             <div style={{ color: '#10B981', fontWeight: 800 }}>
               ${Math.round((liveChain?.callWallStrikeTicks || 0) / 100).toLocaleString()}
             </div>
           </div>
           <div>
-            <div style={{ color: '#64748B', fontSize: '9px' }}>PUT WALL (SUPPORT)</div>
+            <div style={{ color: '#64748B', fontSize: '9px' }}>PUT WALL (HỖ TRỢ)</div>
             <div style={{ color: '#EF4444', fontWeight: 800 }}>
               ${Math.round((liveChain?.putWallStrikeTicks || 0) / 100).toLocaleString()}
+            </div>
+          </div>
+          <div>
+            <div style={{ color: '#64748B', fontSize: '9px' }}>ZERO GAMMA (FLIP γ)</div>
+            <div style={{ color: '#38BDF8', fontWeight: 800 }}>
+              ${Math.round((liveChain?.zeroGammaStrikeTicks || 0) / 100).toLocaleString()}
             </div>
           </div>
           <div>
@@ -249,8 +276,16 @@ export const OptionsBoardModal: React.FC<OptionsBoardModalProps> = ({
         {/* Main Content Area */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px' }}>
           {isLoading && !liveChain ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', color: '#64748B', fontSize: '12px' }}>
-              ĐANG NẠP DỮ LIỆU SỔ LỆNH QUYỀN CHỌN DERIBIT THỜI GIAN THỰC...
+            <div style={{ textAlign: 'center', padding: '60px 0', color: '#94A3B8', fontSize: '12px' }}>
+              {isGoldAsset
+                ? 'ĐANG NẠP CHUỖI QUYỀN CHỌN VÀNG OPRA / CBOE (GLD·IAU) TRỰC TIẾP BẰNG RUST NATIVE...'
+                : 'ĐANG NẠP DỮ LIỆU SỔ LỆNH QUYỀN CHỌN THỜI GIAN THỰC...'}
+            </div>
+          ) : !liveChain?.isRealData || sortedStrikes.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94A3B8', fontSize: '12px' }}>
+              {resolvedCurrency === null
+                ? 'Cặp ngoại hối OTC này không có sổ lệnh Options công khai. Hãy chuyển sang XAUUSD / XAUUSDT (Vàng) hoặc BTCUSDT / ETHUSDT.'
+                : 'Không thể kết nối máy chủ Options trực tuyến. Vui lòng kiểm tra kết nối mạng.'}
             </div>
           ) : activeTab === 'chain' ? (
             /* TAB 1: CLASSIC WALL STREET OPTIONS CHAIN MATRIX */
@@ -265,24 +300,29 @@ export const OptionsBoardModal: React.FC<OptionsBoardModalProps> = ({
             >
               <thead>
                 <tr style={{ background: '#181C26', color: '#94A3B8', borderBottom: '1px solid #262D3D' }}>
-                  <th style={{ padding: '6px 4px', textAlign: 'left', color: '#10B981' }}>CALLS OI</th>
-                  <th style={{ padding: '6px 4px' }}>CALL VOL</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'left', color: '#10B981' }}>
+                    {isGoldAsset ? 'CALLS OI (OZ)' : 'CALLS OI'}
+                  </th>
+                  <th style={{ padding: '6px 4px' }}>{isGoldAsset ? 'CALL VOL (OZ)' : 'CALL VOL'}</th>
                   <th style={{ padding: '6px 4px' }}>IV %</th>
                   <th style={{ padding: '6px 4px', textAlign: 'center', background: '#202532', color: '#F1F5F9' }}>
-                    STRIKE ($)
+                    {isGoldAsset ? 'XAU STRIKE ($/OZ)' : 'STRIKE ($)'}
                   </th>
                   <th style={{ padding: '6px 4px', textAlign: 'center' }}>IV %</th>
-                  <th style={{ padding: '6px 4px' }}>PUT VOL</th>
-                  <th style={{ padding: '6px 4px', color: '#EF4444' }}>PUTS OI</th>
+                  <th style={{ padding: '6px 4px' }}>{isGoldAsset ? 'PUT VOL (OZ)' : 'PUT VOL'}</th>
+                  <th style={{ padding: '6px 4px', color: '#EF4444' }}>
+                    {isGoldAsset ? 'PUTS OI (OZ)' : 'PUTS OI'}
+                  </th>
                   <th style={{ padding: '6px 4px', color: '#38BDF8' }}>NET GEX ($)</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedStrikes.map((s) => {
                   const strikePrice = Math.round(s.strike_ticks / 100);
-                  const isAtm = Math.abs(strikePrice - spot) < spot * 0.015;
+                  const isAtm = Math.abs(strikePrice - spot) < spot * 0.012;
                   const isCallWall = s.strike_ticks === liveChain?.callWallStrikeTicks;
                   const isPutWall = s.strike_ticks === liveChain?.putWallStrikeTicks;
+                  const isZeroGamma = s.strike_ticks === liveChain?.zeroGammaStrikeTicks;
                   const isMaxPain = s.strike_ticks === liveChain?.maxPainStrikeTicks;
 
                   return (
@@ -320,6 +360,7 @@ export const OptionsBoardModal: React.FC<OptionsBoardModalProps> = ({
                         ${strikePrice.toLocaleString()}
                         {isCallWall && <span style={{ color: '#10B981', marginLeft: '4px', fontSize: '8px' }}>[CW]</span>}
                         {isPutWall && <span style={{ color: '#EF4444', marginLeft: '4px', fontSize: '8px' }}>[PW]</span>}
+                        {isZeroGamma && <span style={{ color: '#38BDF8', marginLeft: '4px', fontSize: '8px' }}>[ZG]</span>}
                         {isMaxPain && <span style={{ color: '#FBBF24', marginLeft: '4px', fontSize: '8px' }}>[MP]</span>}
                       </td>
 
@@ -335,7 +376,7 @@ export const OptionsBoardModal: React.FC<OptionsBoardModalProps> = ({
                           fontWeight: 600,
                         }}
                       >
-                        {s.net_gex_usd >= 0 ? '+' : ''}${(s.net_gex_usd / 1e6).toFixed(1)}M
+                        {formatGexUsd(s.net_gex_usd)}
                       </td>
                     </tr>
                   );
@@ -346,19 +387,18 @@ export const OptionsBoardModal: React.FC<OptionsBoardModalProps> = ({
             /* TAB 2: OPTIONS X-RAY & GEX HEATMAP */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ fontSize: '11px', color: '#94A3B8', lineHeight: 1.5 }}>
-                <strong>Options X-Ray & Dealer Gamma Regime:</strong> Khi Net GEX dương, Market Maker hedging làm giảm độ dao động (Volatility Dampener). Khi Net GEX âm, hedging ép thị trường biến động cực đại (Volatility Accelerator).
+                <strong>Options X-Ray & Dealer Gamma Regime ({liveChain?.sourceName}):</strong> Khi Net GEX dương, Market Maker hedging làm giảm độ dao động (Volatility Dampener). Khi Net GEX âm dưới mốc Zero Gamma (${Math.round((liveChain?.zeroGammaStrikeTicks || 0) / 100).toLocaleString()}), hedging khuếch đại biến động mạnh.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {sortedStrikes.slice(0, 18).map((s) => {
-                  const gexM = s.net_gex_usd / 1e6;
-                  const isPos = gexM >= 0;
-                  const barW = Math.min(100, Math.abs(gexM) * 3);
+                {sortedStrikes.slice(0, 22).map((s) => {
+                  const isPos = s.net_gex_usd >= 0;
+                  const barW = Math.max(3, Math.min(100, (Math.abs(s.net_gex_usd) / maxAbsGexUsd) * 100));
                   return (
                     <div
                       key={s.strike_ticks}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '80px 1fr 1fr 90px',
+                        gridTemplateColumns: '88px 1fr 1fr 96px',
                         alignItems: 'center',
                         fontSize: '10px',
                         fontFamily: 'monospace',
@@ -395,8 +435,7 @@ export const OptionsBoardModal: React.FC<OptionsBoardModalProps> = ({
                         )}
                       </div>
                       <span style={{ textAlign: 'right', color: isPos ? '#10B981' : '#EF4444' }}>
-                        {isPos ? '+' : ''}
-                        {gexM.toFixed(2)}M
+                        {formatGexUsd(s.net_gex_usd)}
                       </span>
                     </div>
                   );

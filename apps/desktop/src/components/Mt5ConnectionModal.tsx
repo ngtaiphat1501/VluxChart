@@ -181,15 +181,16 @@ export const Mt5ConnectionModal: React.FC<Mt5ConnectionModalProps> = ({
               style={{
                 width: '36px',
                 height: '36px',
-                borderRadius: '8px',
-                background: 'linear-gradient(135deg, #00B4D8 0%, #0077B6 100%)',
+                borderRadius: '5px',
+                background: '#13262F',
+                border: '1px solid #089981',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontWeight: 900,
-                fontSize: '13px',
-                color: '#FFF',
-                boxShadow: '0 0 14px rgba(0, 180, 216, 0.4)',
+                fontSize: '12px',
+                color: '#34D399',
+                fontFamily: "'JetBrains Mono', monospace",
               }}
             >
               MT5
@@ -237,9 +238,9 @@ export const Mt5ConnectionModal: React.FC<Mt5ConnectionModalProps> = ({
         {/* Live Connected Account Telemetry Card */}
         <div
           style={{
-            background: 'linear-gradient(90deg, rgba(0, 230, 118, 0.08) 0%, rgba(0, 180, 216, 0.08) 100%)',
-            border: '1px solid rgba(0, 230, 118, 0.35)',
-            borderRadius: '8px',
+            background: '#121824',
+            border: '1px solid rgba(16, 185, 129, 0.38)',
+            borderRadius: '6px',
             padding: '12px 14px',
             marginBottom: '16px',
             display: 'flex',
@@ -434,7 +435,7 @@ export const Mt5ConnectionModal: React.FC<Mt5ConnectionModalProps> = ({
                 type="text"
                 value={loginInput}
                 onChange={(e) => setLoginInput(e.target.value)}
-                placeholder="VD: 279650659"
+                placeholder="VD: 100234567"
                 style={{
                   width: '100%',
                   background: '#0D1119',
@@ -515,15 +516,14 @@ export const Mt5ConnectionModal: React.FC<Mt5ConnectionModalProps> = ({
               onClick={handleLoginWithCredentials}
               disabled={isConnecting}
               style={{
-                background: 'linear-gradient(135deg, #00E676 0%, #00B4D8 100%)',
-                border: 'none',
-                color: '#07090E',
-                borderRadius: '6px',
+                background: '#089981',
+                border: '1px solid #10B981',
+                color: '#FFFFFF',
+                borderRadius: '5px',
                 padding: '8px 16px',
                 fontSize: '12px',
-                fontWeight: 900,
+                fontWeight: 700,
                 cursor: 'pointer',
-                boxShadow: '0 4px 14px rgba(0, 230, 118, 0.35)',
               }}
             >
               {isConnecting ? 'Đang kết nối MT5...' : 'Kết nối & Đồng bộ Tài khoản MT5'}

@@ -41,6 +41,11 @@ interface MultiChartGridProps {
   isPickingPriceOnChart?: boolean;
   onPricePickedFromChart?: (priceTicks: number) => void;
   onLoadMoreHistory?: () => void;
+  footprintMode?: 'bid_ask' | 'delta_gradient' | 'monochrome';
+  heatmapPalette?: 'fire' | 'neon' | 'greyscale';
+  whaleVolumeThreshold?: number;
+  userTier?: string;
+  onRequirePrivilege?: (featureKey: string) => boolean;
 }
 
 function getBybitSymbolFromId(instrumentId: string): string {
@@ -71,6 +76,11 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
   isPickingPriceOnChart,
   onPricePickedFromChart,
   onLoadMoreHistory,
+  footprintMode = 'bid_ask',
+  heatmapPalette = 'fire',
+  whaleVolumeThreshold = 500,
+  userTier,
+  onRequirePrivilege,
 }) => {
   const [activePaneId, setActivePaneId] = useState<string>('pane-1');
   const [maximizedPaneId, setMaximizedPaneId] = useState<string | null>(null);
@@ -139,6 +149,7 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
 
   useEffect(() => {
     if (layout === '1x1') return;
+    const controller = new AbortController();
     const symbol = getBybitSymbolFromId(snapshot.instrument_id);
     const visiblePanes =
       layout === '2v' || layout === '2h'
@@ -154,8 +165,9 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
 
       const bybitInterval = timeframeUsToBybitInterval(pane.timeframeUs);
       liveFeedService
-        .fetchRealHistoricalKlines(symbol, bybitInterval, 180)
+        .fetchRealHistoricalKlines(symbol, bybitInterval, 1000, undefined, controller.signal)
         .then((fetchedBars) => {
+          if (controller.signal.aborted) return;
           if (fetchedBars && fetchedBars.length > 0) {
             setTimeframeBarsCache((prev) => ({
               ...prev,
@@ -167,6 +179,8 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
           // Graceful fallback to deterministic multi-timeframe aggregation
         });
     });
+
+    return () => controller.abort();
   }, [layout, panes, snapshot.instrument_id, snapshot.timeframe_us]);
 
   const updatePane = (paneId: string, patch: Partial<ChartPaneConfig>) => {
@@ -201,6 +215,9 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
         volumeProfile={snapshot.volume_profile}
         icebergs={snapshot.icebergs}
         recentTrades={snapshot.recent_trades}
+        footprintMode={footprintMode}
+        heatmapPalette={heatmapPalette}
+        whaleVolumeThreshold={whaleVolumeThreshold}
         drawings={drawings}
         activeDrawingTool={activeDrawingTool}
         drawingColor={drawingColor}
@@ -220,6 +237,8 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
         isPickingPriceOnChart={isPickingPriceOnChart}
         onPricePickedFromChart={onPricePickedFromChart}
         onLoadMoreHistory={onLoadMoreHistory}
+        userTier={userTier}
+        onRequirePrivilege={onRequirePrivilege}
       />
     );
   }
@@ -471,6 +490,9 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
             volumeProfile={paneSnapshot.volume_profile}
             icebergs={paneSnapshot.icebergs}
             recentTrades={paneSnapshot.recent_trades}
+            footprintMode={footprintMode}
+            heatmapPalette={heatmapPalette}
+            whaleVolumeThreshold={whaleVolumeThreshold}
             drawings={drawings}
             activeDrawingTool={activeDrawingTool}
             drawingColor={drawingColor}
@@ -492,6 +514,8 @@ export const MultiChartGrid: React.FC<MultiChartGridProps> = ({
             isPickingPriceOnChart={isPickingPriceOnChart}
             onPricePickedFromChart={onPricePickedFromChart}
             onLoadMoreHistory={pane.id === 'pane-1' ? onLoadMoreHistory : undefined}
+            userTier={userTier}
+            onRequirePrivilege={onRequirePrivilege}
           />
         </div>
       </div>

@@ -2,32 +2,32 @@
   "instrument_id": "BINANCE:USD_M_PERP:XAUUSDT:PERP",
   "venue": "BINANCE",
   "symbol": "XAUUSDT",
-  "window_start_ms": 1795338540000,
-  "window_end_ms": 1795338600000,
-  "window_iso": "2026-11-22T09:09:00Z",
-  "trade_count": 64,
+  "window_start_ms": 1795541760000,
+  "window_end_ms": 1795541820000,
+  "window_iso": "2026-11-24T17:36:00Z",
+  "trade_count": 468,
   "ohlc": {
     "official": [
-      3554.88,
-      3555.29,
-      3554.88,
-      3555.28
+      3572.13,
+      3572.13,
+      3568.75,
+      3568.85
     ],
     "aggregated": [
-      3554.88,
-      3555.29,
-      3554.88,
-      3555.28
+      3572.13,
+      3572.13,
+      3568.75,
+      3568.85
     ],
     "ohlc_match": true
   },
   "volume": {
-    "official_total": "17.723",
-    "official_taker_buy": "11.525",
-    "official_taker_sell": "6.198",
-    "aggregated_total": "17.723",
-    "aggregated_buy": "11.525",
-    "aggregated_sell": "6.198",
+    "official_total": "903.109",
+    "official_taker_buy": "249.686",
+    "official_taker_sell": "653.423",
+    "aggregated_total": "903.109",
+    "aggregated_buy": "249.686",
+    "aggregated_sell": "653.423",
     "aggregated_unknown": "0",
     "volume_diff": "0.000",
     "variance_pct": 0.0,

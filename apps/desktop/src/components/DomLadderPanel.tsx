@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { OrderBookSnapshotDTO, TradeEventDTO } from '../types';
+import { MboQueueOrderItemDTO, OrderBookSnapshotDTO, TradeEventDTO } from '../types';
 import { CANONICAL_INSTRUMENTS, formatInstrumentPrice, formatPriceDiffPips, getInstrumentMeta } from '../utils/instrumentRegistry';
 
 interface DomLadderPanelProps {
@@ -26,12 +26,31 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
   const [centerOffset, setCenterOffset] = useState<number>(0);
   const [tickMult, setTickMult] = useState<number>(1);
   const [showFootprintCol, setShowFootprintCol] = useState<boolean>(true);
+  const [showMboQueue, setShowMboQueue] = useState<boolean>(true);
 
   const instMeta = getInstrumentMeta(instrumentId);
-  const isBtc = instrumentId.includes('BTC');
-  const isEth = instrumentId.includes('ETH');
-  const qtyScale = isBtc ? 1000 : isEth ? 100 : instMeta.venue === 'MT5' ? 10 : 1;
-  const unit = instMeta.venue === 'MT5' ? 'Lot' : isBtc ? 'BTC' : isEth ? 'ETH' : instrumentId.includes('XAU') ? 'OZ' : 'contracts';
+  const isCmeMbo = instrumentId.startsWith('CME:') || instMeta.venue === 'CME_MBO';
+  const isBtc = !isCmeMbo && instrumentId.includes('BTC');
+  const isEth = !isCmeMbo && instrumentId.includes('ETH');
+  const qtyScale = isCmeMbo ? 1 : isBtc ? 1000 : isEth ? 100 : instMeta.venue === 'MT5' ? 10 : 1;
+  const unit = isCmeMbo
+    ? 'Ct'
+    : instMeta.venue === 'MT5'
+    ? 'Lot'
+    : isBtc
+    ? 'BTC'
+    : isEth
+    ? 'ETH'
+    : instrumentId.includes('XAU')
+    ? 'OZ'
+    : 'contracts';
+
+  const hasMboQueue = useMemo(() => {
+    return Boolean(
+      orderBook?.bids?.some((b) => b.mbo_queue && b.mbo_queue.length > 0) ||
+        orderBook?.asks?.some((a) => a.mbo_queue && a.mbo_queue.length > 0)
+    );
+  }, [orderBook]);
 
   // Format quantities with appropriate precision
   const formatQty = (rawUnits: number) => {
@@ -85,18 +104,28 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
     const alignedMid = Math.round(midPrice / effectiveTick) * effectiveTick;
     const center = alignedMid + centerOffset * effectiveTick;
 
-    // Bin and aggregate orderbook quantities into effectiveTick intervals
+    // Bin and aggregate orderbook quantities + CME Level-3 FIFO queues into effectiveTick intervals
     const bidMap = new Map<number, number>();
     const askMap = new Map<number, number>();
+    const bidQueueMap = new Map<number, MboQueueOrderItemDTO[]>();
+    const askQueueMap = new Map<number, MboQueueOrderItemDTO[]>();
 
     orderBook?.bids?.forEach((b) => {
       const binPrice = Math.floor(b.price_ticks / effectiveTick) * effectiveTick;
       bidMap.set(binPrice, (bidMap.get(binPrice) || 0) + b.quantity_units);
+      if (b.mbo_queue && b.mbo_queue.length > 0) {
+        const prevQ = bidQueueMap.get(binPrice) || [];
+        bidQueueMap.set(binPrice, [...prevQ, ...b.mbo_queue].slice(0, 8));
+      }
     });
 
     orderBook?.asks?.forEach((a) => {
       const binPrice = Math.ceil(a.price_ticks / effectiveTick) * effectiveTick;
       askMap.set(binPrice, (askMap.get(binPrice) || 0) + a.quantity_units);
+      if (a.mbo_queue && a.mbo_queue.length > 0) {
+        const prevQ = askQueueMap.get(binPrice) || [];
+        askQueueMap.set(binPrice, [...prevQ, ...a.mbo_queue].slice(0, 8));
+      }
     });
 
     // Bin recent executed trades into rolling footprint buckets
@@ -120,6 +149,8 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
       const price = center + i * effectiveTick;
       const bQty = bidMap.get(price) || 0;
       const aQty = askMap.get(price) || 0;
+      const bQueue = bidQueueMap.get(price) || [];
+      const aQueue = askQueueMap.get(price) || [];
       const fpVol = fpVolMap.get(price) || 0;
       const fpDelta = fpDeltaMap.get(price) || 0;
       const isBestB = Math.abs(price - bestBid) < effectiveTick / 2;
@@ -129,6 +160,8 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
         price,
         bidQty: bQty,
         askQty: aQty,
+        bidQueue: bQueue,
+        askQueue: aQueue,
         fpVol,
         fpDelta,
         isBestBid: isBestB,
@@ -168,8 +201,8 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontWeight: 700, color: '#00E5FF', fontSize: '11px' }}>🪜 DOM LADDER</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+            <span style={{ fontWeight: 800, color: '#38BDF8', fontSize: '11px', letterSpacing: '0.3px' }}>DOM</span>
             <span style={{ fontSize: '10px', color: '#94A3B8' }}>
               Spr: {formatPriceDiffPips(Math.max(0, bestAsk - bestBid), instrumentId)}
             </span>
@@ -215,6 +248,27 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
               ⌖
             </button>
 
+            {/* CME Level-3 MBO FIFO Queue Toggle */}
+            {(hasMboQueue || isCmeMbo) && (
+              <button
+                data-testid="dom-mbo-fifo-toggle"
+                onClick={() => setShowMboQueue(!showMboQueue)}
+                style={{
+                  background: showMboQueue ? '#10B981' : '#2A2E39',
+                  color: showMboQueue ? '#051510' : '#94A3B8',
+                  border: 'none',
+                  borderRadius: '3px',
+                  padding: '2px 5px',
+                  fontSize: '9px',
+                  cursor: 'pointer',
+                  fontWeight: 800,
+                }}
+                title="Hiển thị Hàng đợi ưu tiên FIFO từng lệnh CME Level-3 MBO (Order-by-Order)"
+              >
+                L3 MBO
+              </button>
+            )}
+
             {/* ATAS Smart DOM: Rolling Footprint Column Toggle */}
             <button
               onClick={() => setShowFootprintCol(!showFootprintCol)}
@@ -247,7 +301,7 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
                 }}
                 title={isFloating ? 'Dock panel to sidebar' : 'Pop out into floating window'}
               >
-                {isFloating ? '📌' : '↗'}
+                {isFloating ? '↙' : '↗'}
               </button>
             )}
             {onClose && (
@@ -290,6 +344,45 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
           </span>
         </div>
       </div>
+
+      {/* CME 2-Tier Smart Notice: Tier-1 Candles/FP Free vs Tier-2 L3 MBO FIFO Unlock */}
+      {isCmeMbo && !hasMboQueue && (
+        <div
+          data-testid="dom-cme-tier2-unlock-banner"
+          style={{
+            padding: '5px 8px',
+            background: 'rgba(14, 165, 233, 0.08)',
+            borderBottom: '1px solid #223046',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '6px',
+            fontSize: '9.5px',
+            color: '#94A3B8',
+          }}
+        >
+          <span style={{ lineHeight: 1.3 }}>
+            Nến &amp; FP chạy miễn phí · Mở khóa <strong style={{ color: '#34D399' }}>Hàng đợi L3 FIFO</strong>:
+          </span>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('deepchart:open_cme_modal'))}
+            style={{
+              background: '#089981',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: '3px',
+              padding: '3px 7px',
+              fontSize: '9px',
+              fontWeight: 800,
+              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+            }}
+          >
+            + Mở L3 MBO
+          </button>
+        </div>
+      )}
 
       {/* Ladder Column Headers */}
       <div
@@ -340,15 +433,26 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
                 position: 'relative',
               }}
             >
-              {/* Bid Volume Cell */}
+              {/* Bid Volume Cell (+ CME Level-3 FIFO Queue Chips) */}
               <div
                 style={{
                   height: '100%',
                   position: 'relative',
                   display: 'flex',
                   alignItems: 'center',
-                  paddingLeft: '6px',
+                  justifyContent: 'space-between',
+                  paddingLeft: '5px',
+                  paddingRight: '4px',
+                  overflow: 'hidden',
                 }}
+                title={
+                  row.bidQueue.length > 0
+                    ? `CME L3 Bid FIFO Queue: ` +
+                      row.bidQueue
+                        .map((q, idx) => `#${idx + 1} (..${q.order_id_tail}): ${q.quantity_contracts} Ct`)
+                        .join(' | ')
+                    : undefined
+                }
               >
                 {row.bidQty > 0 && (
                   <div
@@ -363,9 +467,29 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
                     }}
                   />
                 )}
-                <span style={{ position: 'relative', zIndex: 1, color: '#089981', fontWeight: 600, fontSize: '10px' }}>
+                <span style={{ position: 'relative', zIndex: 1, color: '#089981', fontWeight: 700, fontSize: '10px' }}>
                   {formatQty(row.bidQty)}
                 </span>
+                {showMboQueue && row.bidQueue.length > 0 && (
+                  <div style={{ position: 'relative', zIndex: 1, display: 'flex', gap: '2px', overflow: 'hidden' }}>
+                    {row.bidQueue.slice(0, 3).map((q, qi) => (
+                      <span
+                        key={`${q.order_id_tail}-${qi}`}
+                        style={{
+                          fontSize: '8.5px',
+                          padding: '0 3px',
+                          borderRadius: '2px',
+                          background: q.is_large_lot ? 'rgba(245, 158, 11, 0.25)' : 'rgba(15, 23, 42, 0.72)',
+                          color: q.is_large_lot ? '#FBBF24' : '#A7F3D0',
+                          border: q.is_large_lot ? '1px solid rgba(251, 191, 36, 0.6)' : '1px solid rgba(16, 185, 129, 0.35)',
+                          fontWeight: q.is_large_lot ? 800 : 600,
+                        }}
+                      >
+                        {q.quantity_contracts}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Price Cell */}
@@ -387,16 +511,26 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
                 {formatInstrumentPrice(row.price, instrumentId)}
               </div>
 
-              {/* Ask Volume Cell */}
+              {/* Ask Volume Cell (+ CME Level-3 FIFO Queue Chips) */}
               <div
                 style={{
                   height: '100%',
                   position: 'relative',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'flex-end',
-                  paddingRight: '6px',
+                  justifyContent: 'space-between',
+                  paddingLeft: '4px',
+                  paddingRight: '5px',
+                  overflow: 'hidden',
                 }}
+                title={
+                  row.askQueue.length > 0
+                    ? `CME L3 Ask FIFO Queue: ` +
+                      row.askQueue
+                        .map((q, idx) => `#${idx + 1} (..${q.order_id_tail}): ${q.quantity_contracts} Ct`)
+                        .join(' | ')
+                    : undefined
+                }
               >
                 {row.askQty > 0 && (
                   <div
@@ -411,7 +545,29 @@ export const DomLadderPanel: React.FC<DomLadderPanelProps> = ({
                     }}
                   />
                 )}
-                <span style={{ position: 'relative', zIndex: 1, color: '#F23645', fontWeight: 600, fontSize: '10px' }}>
+                {showMboQueue && row.askQueue.length > 0 ? (
+                  <div style={{ position: 'relative', zIndex: 1, display: 'flex', gap: '2px', overflow: 'hidden' }}>
+                    {row.askQueue.slice(0, 3).map((q, qi) => (
+                      <span
+                        key={`${q.order_id_tail}-${qi}`}
+                        style={{
+                          fontSize: '8.5px',
+                          padding: '0 3px',
+                          borderRadius: '2px',
+                          background: q.is_large_lot ? 'rgba(245, 158, 11, 0.25)' : 'rgba(15, 23, 42, 0.72)',
+                          color: q.is_large_lot ? '#FBBF24' : '#FECACA',
+                          border: q.is_large_lot ? '1px solid rgba(251, 191, 36, 0.6)' : '1px solid rgba(244, 63, 94, 0.35)',
+                          fontWeight: q.is_large_lot ? 800 : 600,
+                        }}
+                      >
+                        {q.quantity_contracts}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span />
+                )}
+                <span style={{ position: 'relative', zIndex: 1, color: '#F23645', fontWeight: 700, fontSize: '10px' }}>
                   {formatQty(row.askQty)}
                 </span>
               </div>
